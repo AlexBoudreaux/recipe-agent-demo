@@ -1,24 +1,141 @@
 "use client";
 
 import * as React from "react";
-import { useChat } from "@ai-sdk/react";
-import { ArrowUpIcon, SquareIcon, Trash2Icon } from "lucide-react";
+import type { UseChatHelpers } from "@ai-sdk/react";
+import type { UIMessage } from "ai";
+import {
+  ArrowUpIcon,
+  SquareIcon,
+  Trash2Icon,
+  LoaderIcon,
+  SearchIcon,
+  BookOpenIcon,
+  CheckCircle2Icon,
+  AlertCircleIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { AGENT_MODES, type AgentMode } from "@/lib/agent-mode";
+import type { ExtractEvent } from "@/lib/artifact-types";
 
-function messageText(parts: { type: string; text?: string }[]) {
+function messageText(parts: UIMessage["parts"]) {
   return parts
     .filter((p) => p.type === "text")
-    .map((p) => p.text ?? "")
+    .map((p) => ("text" in p ? p.text : ""))
     .join("");
 }
 
-export function ChatPanel({ mode }: { mode: AgentMode }) {
-  const { messages, sendMessage, status, stop, setMessages } = useChat();
+// A loose view of a tool UI part — enough to render a status line without
+// pulling the agent's full generic type into the client bundle.
+type ToolPartView = {
+  type: string;
+  state?: string;
+  preliminary?: boolean;
+  output?: unknown;
+};
+
+/** One short status chip for an agent tool call, so work is visible in chat. */
+function ToolStatus({ part }: { part: ToolPartView }) {
+  const done = part.state === "output-available" && !part.preliminary;
+
+  if (part.type === "tool-fetch_and_extract") {
+    if (done) {
+      const out = part.output as ExtractEvent | undefined;
+      if (out?.status === "ready") {
+        const n = out.candidates.length;
+        return (
+          <Chip icon={<BookOpenIcon className="size-3" />}>
+            {n === 1 ? "Extracted 1 recipe" : `Found ${n} recipes`}
+          </Chip>
+        );
+      }
+      if (out?.status === "empty") {
+        return (
+          <Chip icon={<AlertCircleIcon className="size-3" />}>
+            No recipe in that source
+          </Chip>
+        );
+      }
+      if (out?.status === "error") {
+        return (
+          <Chip icon={<AlertCircleIcon className="size-3" />} tone="warn">
+            Couldn&apos;t read the source
+          </Chip>
+        );
+      }
+    }
+    return (
+      <Chip icon={<LoaderIcon className="size-3 animate-spin" />}>
+        Reading the source…
+      </Chip>
+    );
+  }
+
+  if (part.type === "tool-save_recipe") {
+    return done ? (
+      <Chip icon={<CheckCircle2Icon className="size-3" />} tone="ok">
+        Saved to your library
+      </Chip>
+    ) : (
+      <Chip icon={<LoaderIcon className="size-3 animate-spin" />}>Saving…</Chip>
+    );
+  }
+
+  if (part.type === "tool-find_recipes" || part.type === "tool-get_recipe") {
+    return (
+      <Chip icon={<SearchIcon className="size-3" />}>
+        {done ? "Searched your library" : "Searching your library…"}
+      </Chip>
+    );
+  }
+
+  return null;
+}
+
+function Chip({
+  icon,
+  children,
+  tone = "muted",
+}: {
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  tone?: "muted" | "ok" | "warn";
+}) {
+  return (
+    <div
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs",
+        tone === "ok" && "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+        tone === "warn" && "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+        tone === "muted" && "bg-muted text-muted-foreground",
+      )}
+    >
+      {icon}
+      {children}
+    </div>
+  );
+}
+
+type ChatPanelProps = {
+  mode: AgentMode;
+  messages: UIMessage[];
+  sendMessage: UseChatHelpers<UIMessage>["sendMessage"];
+  status: UseChatHelpers<UIMessage>["status"];
+  stop: UseChatHelpers<UIMessage>["stop"];
+  setMessages: UseChatHelpers<UIMessage>["setMessages"];
+};
+
+export function ChatPanel({
+  mode,
+  messages,
+  sendMessage,
+  status,
+  stop,
+  setMessages,
+}: ChatPanelProps) {
   const [input, setInput] = React.useState("");
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
@@ -62,28 +179,49 @@ export function ChatPanel({ mode }: { mode: AgentMode }) {
             {messages.length === 0 ? (
               <EmptyState mode={mode} onPick={setInput} />
             ) : (
-              messages.map((m) => (
-                <div
-                  key={m.id}
-                  className={cn(
-                    "flex",
-                    m.role === "user" ? "justify-end" : "justify-start"
-                  )}
-                >
+              messages.map((m) => {
+                const text = messageText(m.parts);
+                const toolParts = m.parts.filter((p) =>
+                  p.type.startsWith("tool-"),
+                ) as unknown as ToolPartView[];
+
+                return (
                   <div
+                    key={m.id}
                     className={cn(
-                      "max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm",
-                      m.role === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-foreground"
+                      "flex flex-col gap-1.5",
+                      m.role === "user" ? "items-end" : "items-start",
                     )}
                   >
-                    {messageText(m.parts) || (
-                      <span className="text-muted-foreground">…</span>
+                    {m.role === "assistant" && toolParts.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {toolParts.map((p, i) => (
+                          <ToolStatus key={i} part={p} />
+                        ))}
+                      </div>
                     )}
+                    {text && (
+                      <div
+                        className={cn(
+                          "max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm",
+                          m.role === "user"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-foreground",
+                        )}
+                      >
+                        {text}
+                      </div>
+                    )}
+                    {m.role === "assistant" &&
+                      !text &&
+                      toolParts.length === 0 && (
+                        <div className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+                          …
+                        </div>
+                      )}
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </ScrollArea>
@@ -129,19 +267,16 @@ function EmptyState({
     mode === "ingest"
       ? [
           "Save the spicy pasta from this blog post",
-          "Grab the shrimp brining technique from this video",
+          "Grab the recipe from this YouTube video",
         ]
-      : [
-          "What can I make with shrimp?",
-          "Find me a quick weeknight side dish",
-        ];
+      : ["What can I make with shrimp?", "Show me my saved side dishes"];
 
   return (
     <div className="flex flex-col items-center gap-4 px-6 py-16 text-center">
       <p className="text-sm font-medium">How can I help you cook?</p>
       <p className="max-w-xs text-xs text-muted-foreground">
-        I capture recipes and techniques from messy sources and help you plan
-        meals, while you stay in control.
+        I capture recipes from messy sources and help you find them again, while
+        you stay in control.
       </p>
       <div className="flex w-full max-w-xs flex-col gap-2">
         {suggestions.map((s) => (

@@ -1,27 +1,31 @@
-import { streamText, convertToModelMessages, type UIMessage } from "ai";
-import { chatModel } from "@/lib/model";
+import { createAgentUIStreamResponse, type UIMessage } from "ai";
+import { buildRecipeAgent } from "@/lib/recipe-agent";
+import type { AgentMode } from "@/lib/agent-mode";
 
-// Allow streaming responses up to 30s on the edge of Vercel's hobby limit.
-export const maxDuration = 30;
+// Ingest can run fetch + LLM extraction + embedding + save in one turn. The
+// cover image is fire-and-forget so it doesn't count. Give it generous head-
+// room (Vercel's default function timeout is now 300s; this stays well under).
+export const maxDuration = 120;
 
-const SYSTEM_PROMPT = [
-  "You are Recipe Agent, a cooking assistant that helps a single chef capture",
-  "recipes and techniques from messy sources, build a library that compounds,",
-  "and plan meals while keeping the human in control.",
-  "For now this is a skeleton: just answer conversationally and briefly.",
-  "The real ingest, search, and planning tools arrive in later chunks.",
-].join(" ");
+interface ChatRequestBody {
+  messages: UIMessage[];
+  /** Soft mode pointer sent by the client transport. Biases the agent. */
+  mode?: AgentMode;
+  /** Threaded for later menu/plan chunks; unused in ACT 1. */
+  menuId?: string | null;
+}
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json();
+  const { messages, mode = "ingest", menuId = null } =
+    (await req.json()) as ChatRequestBody;
 
-  // Calls the OpenAI API directly (OPENAI_API_KEY). Model is centralized in
-  // @/lib/model so the model/provider is a one-line swap.
-  const result = streamText({
-    model: chatModel,
-    system: SYSTEM_PROMPT,
-    messages: await convertToModelMessages(messages),
+  const agent = buildRecipeAgent({ mode, menuId });
+
+  // Wires the ToolLoopAgent to a UI message stream: it converts the incoming
+  // UI messages, runs the tool loop, and streams assistant text + tool parts
+  // (including the preliminary, streaming fetch_and_extract output) back.
+  return createAgentUIStreamResponse({
+    agent,
+    uiMessages: messages,
   });
-
-  return result.toUIMessageStreamResponse();
 }
