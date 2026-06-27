@@ -1,5 +1,5 @@
 import { streamText, convertToModelMessages, type UIMessage } from "ai";
-import { CHAT_MODEL_ID } from "@/lib/model";
+import { chatModel } from "@/lib/model";
 
 // Allow streaming responses up to 30s on the edge of Vercel's hobby limit.
 export const maxDuration = 30;
@@ -15,10 +15,10 @@ const SYSTEM_PROMPT = [
 export async function POST(req: Request) {
   const { messages }: { messages: UIMessage[] } = await req.json();
 
-  // Bare string model id routes through the Vercel AI Gateway (AI_GATEWAY_API_KEY).
-  // Centralized in @/lib/model so the provider is a one-string swap.
+  // Calls the OpenAI API directly (OPENAI_API_KEY). Model is centralized in
+  // @/lib/model so the model/provider is a one-line swap.
   const result = streamText({
-    model: CHAT_MODEL_ID,
+    model: chatModel,
     system: SYSTEM_PROMPT,
     messages: await convertToModelMessages(messages),
   });
