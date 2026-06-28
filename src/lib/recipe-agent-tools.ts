@@ -29,6 +29,7 @@ import {
 } from "./recipe-extractor";
 import { embedRecipe } from "./embedding";
 import { generateAndAttachRecipeImage } from "./recipe-image";
+import { associateRecipe } from "./associate";
 import type {
   CandidateRecipe,
   ExtractEvent,
@@ -199,6 +200,13 @@ const saveRecipe = tool({
       { title: clean.title, summary: clean.summary },
       { convex },
     );
+
+    // Fire-and-forget association: a new recipe scans every existing technique
+    // so attached know-how appears immediately, regardless of ingest order.
+    // Never awaited; a failure here must not fail the save.
+    void associateRecipe(savedRecipeId, { convex }).catch((err) => {
+      console.error(`associateRecipe(${savedRecipeId}) failed:`, err);
+    });
 
     return { savedRecipeId, title: clean.title };
   },

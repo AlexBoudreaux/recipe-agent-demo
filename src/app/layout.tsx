@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Recipe Agent",
+  title: "Cookbook",
   description:
     "Capture recipes and techniques from messy sources, build a library that compounds, and plan meals with a human in control.",
 };
@@ -35,8 +35,8 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
-          enableSystem
+          defaultTheme="light"
+          enableSystem={false}
           disableTransitionOnChange
         >
           <ConvexClientProvider>{children}</ConvexClientProvider>

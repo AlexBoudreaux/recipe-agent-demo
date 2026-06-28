@@ -12,13 +12,15 @@ import {
   BookOpenIcon,
   CheckCircle2Icon,
   AlertCircleIcon,
+  ChevronRightIcon,
+  SparklesIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { AGENT_MODES, type AgentMode } from "@/lib/agent-mode";
+import { ModeSwitch } from "@/components/mode-switch";
+import { type AgentMode } from "@/lib/agent-mode";
 import type { ExtractEvent } from "@/lib/artifact-types";
 
 function messageText(parts: UIMessage["parts"]) {
@@ -121,6 +123,8 @@ function Chip({
 
 type ChatPanelProps = {
   mode: AgentMode;
+  onModeChange: (mode: AgentMode) => void;
+  onCollapse: () => void;
   messages: UIMessage[];
   sendMessage: UseChatHelpers<UIMessage>["sendMessage"];
   status: UseChatHelpers<UIMessage>["status"];
@@ -130,6 +134,8 @@ type ChatPanelProps = {
 
 export function ChatPanel({
   mode,
+  onModeChange,
+  onCollapse,
   messages,
   sendMessage,
   status,
@@ -140,7 +146,6 @@ export function ChatPanel({
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
   const isBusy = status === "submitted" || status === "streaming";
-  const hint = AGENT_MODES.find((m) => m.value === mode)?.hint;
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -155,25 +160,33 @@ export function ChatPanel({
   }
 
   return (
-    <Card className="flex h-full min-h-0 flex-col gap-0 overflow-hidden py-0">
-      <CardHeader className="flex shrink-0 flex-row items-center justify-between gap-2 border-b py-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium leading-none">Chat</p>
-          <p className="mt-1 truncate text-xs text-muted-foreground">{hint}</p>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/95 shadow-xl shadow-foreground/10 ring-1 ring-foreground/5 backdrop-blur-xl">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-gradient-to-b from-muted/40 to-transparent px-3 py-2.5">
+        <ModeSwitch value={mode} onValueChange={onModeChange} />
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground"
+            aria-label="Clear conversation"
+            disabled={messages.length === 0 || isBusy}
+            onClick={() => setMessages([])}
+          >
+            <Trash2Icon className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground"
+            aria-label="Collapse chat"
+            onClick={onCollapse}
+          >
+            <ChevronRightIcon className="size-4" />
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-muted-foreground"
-          disabled={messages.length === 0 || isBusy}
-          onClick={() => setMessages([])}
-        >
-          <Trash2Icon className="size-3.5" />
-          Clear
-        </Button>
-      </CardHeader>
+      </div>
 
-      <CardContent className="min-h-0 flex-1 p-0">
+      <div className="min-h-0 flex-1">
         <ScrollArea className="h-full" viewportRef={scrollRef}>
           <div className="flex flex-col gap-4 p-4">
             {messages.length === 0 ? (
@@ -203,10 +216,10 @@ export function ChatPanel({
                     {text && (
                       <div
                         className={cn(
-                          "max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm",
+                          "max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm shadow-sm",
                           m.role === "user"
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-foreground",
+                            ? "rounded-br-md bg-brand text-brand-foreground"
+                            : "rounded-bl-md bg-muted text-foreground ring-1 ring-border/60",
                         )}
                       >
                         {text}
@@ -215,8 +228,9 @@ export function ChatPanel({
                     {m.role === "assistant" &&
                       !text &&
                       toolParts.length === 0 && (
-                        <div className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
-                          …
+                        <div className="inline-flex items-center gap-1.5 rounded-2xl rounded-bl-md bg-muted px-3.5 py-2 text-sm text-muted-foreground ring-1 ring-border/60">
+                          <LoaderIcon className="size-3.5 animate-spin" />
+                          Thinking…
                         </div>
                       )}
                   </div>
@@ -225,10 +239,13 @@ export function ChatPanel({
             )}
           </div>
         </ScrollArea>
-      </CardContent>
+      </div>
 
-      <CardFooter className="shrink-0 border-t p-3">
-        <form onSubmit={handleSubmit} className="flex w-full items-center gap-2">
+      <div className="shrink-0 border-t border-border/70 bg-gradient-to-t from-muted/40 to-transparent p-3">
+        <form
+          onSubmit={handleSubmit}
+          className="flex w-full items-center gap-2 rounded-xl border border-border/70 bg-background p-1 pl-3 shadow-sm focus-within:ring-2 focus-within:ring-ring/40"
+        >
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -238,21 +255,33 @@ export function ChatPanel({
                 : "Search your library…"
             }
             disabled={isBusy}
+            className="h-8 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
           />
           {isBusy ? (
-            <Button type="button" size="icon" variant="secondary" onClick={stop}>
+            <Button
+              type="button"
+              size="icon"
+              variant="secondary"
+              className="size-8 shrink-0 rounded-lg"
+              onClick={stop}
+            >
               <SquareIcon className="size-4" />
               <span className="sr-only">Stop</span>
             </Button>
           ) : (
-            <Button type="submit" size="icon" disabled={!input.trim()}>
+            <Button
+              type="submit"
+              size="icon"
+              className="size-8 shrink-0 rounded-lg"
+              disabled={!input.trim()}
+            >
               <ArrowUpIcon className="size-4" />
               <span className="sr-only">Send</span>
             </Button>
           )}
         </form>
-      </CardFooter>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -272,21 +301,26 @@ function EmptyState({
       : ["What can I make with shrimp?", "Show me my saved side dishes"];
 
   return (
-    <div className="flex flex-col items-center gap-4 px-6 py-16 text-center">
-      <p className="text-sm font-medium">How can I help you cook?</p>
-      <p className="max-w-xs text-xs text-muted-foreground">
-        I capture recipes from messy sources and help you find them again, while
-        you stay in control.
+    <div className="flex flex-col items-center gap-4 px-4 py-12 text-center">
+      <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-brand/15 to-accent text-brand shadow-sm ring-1 ring-brand/15">
+        <SparklesIcon className="size-5" />
+      </div>
+      <p className="font-heading text-base font-semibold tracking-tight">
+        How can I help you cook?
       </p>
-      <div className="flex w-full max-w-xs flex-col gap-2">
+      <div className="flex w-full flex-col gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
+          Try
+        </p>
         {suggestions.map((s) => (
           <button
             key={s}
             type="button"
             onClick={() => onPick(s)}
-            className="rounded-md border bg-card px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="group flex items-center gap-2 rounded-xl border border-border/70 bg-card px-3 py-2.5 text-left text-sm text-foreground shadow-sm transition-all hover:border-brand/40 hover:bg-accent"
           >
-            {s}
+            <ArrowUpIcon className="size-3.5 shrink-0 rotate-45 text-muted-foreground transition-colors group-hover:text-brand" />
+            <span className="leading-snug">{s}</span>
           </button>
         ))}
       </div>

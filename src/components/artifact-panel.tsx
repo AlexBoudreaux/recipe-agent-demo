@@ -4,10 +4,9 @@ import * as React from "react";
 import { useQuery } from "convex/react";
 import type { UseChatHelpers } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
-import { SparklesIcon } from "lucide-react";
+import { ChefHatIcon } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -103,9 +102,12 @@ function candidateToView(c: CandidateRecipe | PartialCandidate): RecipeView {
 export function ArtifactPanel({
   messages,
   status,
+  reservedRight = 0,
 }: {
   messages: UIMessage[];
   status: UseChatHelpers<UIMessage>["status"];
+  /** px to keep clear on the right so the floating chat never covers content */
+  reservedRight?: number;
 }) {
   const { phase, candidates, savedByTitle } = React.useMemo(
     () => deriveArtifact(messages),
@@ -133,111 +135,124 @@ export function ArtifactPanel({
 
   const hasArtifact = candidates.length > 0 || phase === "fetching";
 
+  const statusBadge =
+    candidates.length > 1
+      ? `${candidates.length} recipes`
+      : phase === "ready" || savedId
+        ? "1 recipe"
+        : phase === "fetching" || phase === "extracting"
+          ? "Building…"
+          : null;
+
+  // The canvas is the primary surface: a soft, dotted workspace the recipe
+  // builds onto. Content is centered in the space the floating chat leaves free.
   return (
-    <Card className="flex h-full min-h-0 flex-col gap-0 overflow-hidden py-0">
-      <CardHeader className="flex shrink-0 flex-row items-center justify-between gap-2 border-b py-3">
-        <div>
-          <p className="text-sm font-medium leading-none">Artifact</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Recipes build here live as they&apos;re captured
-          </p>
+    <div className="relative h-full min-h-0 bg-[radial-gradient(oklch(0.6_0.02_55/0.07)_1px,transparent_1px)] [background-size:18px_18px]">
+      {statusBadge && (
+        <div className="pointer-events-none absolute left-4 top-4 z-10">
+          <Badge
+            variant="secondary"
+            className="bg-card/80 shadow-sm ring-1 ring-border/60 backdrop-blur"
+          >
+            {statusBadge}
+          </Badge>
         </div>
-        {candidates.length > 1 ? (
-          <Badge variant="secondary">{candidates.length} recipes found</Badge>
-        ) : phase === "ready" || savedId ? (
-          <Badge variant="secondary">1 recipe</Badge>
-        ) : phase === "fetching" || phase === "extracting" ? (
-          <Badge variant="secondary">Building…</Badge>
-        ) : (
-          <Badge variant="secondary">Empty</Badge>
-        )}
-      </CardHeader>
+      )}
 
-      <CardContent className="min-h-0 flex-1 p-0">
-        {!hasArtifact ? (
+      {!hasArtifact ? (
+        <div
+          className="flex h-full items-center justify-center p-6"
+          style={{ paddingRight: reservedRight ? reservedRight + 24 : undefined }}
+        >
           <EmptyState />
-        ) : (
-          <ScrollArea className="h-full">
-            <div className="flex flex-col gap-4 p-4">
-              {/* Multi-recipe chooser. The agent also asks in chat; this mirrors
-                  the options visually and lets the user eyeball each one. */}
-              {candidates.length > 1 && (
-                <div className="flex flex-wrap gap-2">
-                  {candidates.map((c, i) => {
-                    const isSaved = savedByTitle.has(norm(c.title));
-                    return (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => setFocused(i)}
-                        className={cn(
-                          "rounded-full border px-3 py-1 text-xs transition-colors",
-                          i === focused
-                            ? "border-brand bg-brand/10 text-brand"
-                            : "bg-card text-muted-foreground hover:bg-accent",
-                        )}
-                      >
-                        {c.title ?? `Recipe ${i + 1}`}
-                        {isSaved ? " ✓" : ""}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+        </div>
+      ) : (
+        <ScrollArea className="h-full">
+          <div
+            className="mx-auto flex max-w-2xl flex-col gap-4 px-6 py-8"
+            style={{
+              paddingRight: reservedRight ? reservedRight + 24 : undefined,
+            }}
+          >
+            {/* Multi-recipe chooser. The agent also asks in chat; this mirrors
+                the options visually and lets the user eyeball each one. */}
+            {candidates.length > 1 && (
+              <div className="flex flex-wrap gap-2">
+                {candidates.map((c, i) => {
+                  const isSaved = savedByTitle.has(norm(c.title));
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setFocused(i)}
+                      className={cn(
+                        "rounded-full border px-3 py-1 text-xs transition-colors",
+                        i === focused
+                          ? "border-brand bg-brand/10 text-brand"
+                          : "bg-card text-muted-foreground hover:bg-accent",
+                      )}
+                    >
+                      {c.title ?? `Recipe ${i + 1}`}
+                      {isSaved ? " ✓" : ""}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
-              <RecipeCard
-                recipe={
-                  savedRow
-                    ? {
-                        title: savedRow.title,
-                        category: savedRow.category,
-                        summary: savedRow.summary,
-                        yield: savedRow.yield,
-                        ingredients: savedRow.ingredients,
-                        steps: savedRow.steps,
-                        tags: savedRow.tags,
-                        imageUrl: savedRow.imageUrl,
-                      }
-                    : focusedCandidate
-                      ? candidateToView(focusedCandidate)
-                      : {}
-                }
-                status={
-                  savedRow
-                    ? "saved"
-                    : savedId
-                      ? "saving"
-                      : phase === "ready"
-                        ? "draft"
-                        : "streaming"
-                }
-              />
+            <RecipeCard
+              recipe={
+                savedRow
+                  ? {
+                      title: savedRow.title,
+                      category: savedRow.category,
+                      summary: savedRow.summary,
+                      yield: savedRow.yield,
+                      ingredients: savedRow.ingredients,
+                      steps: savedRow.steps,
+                      tags: savedRow.tags,
+                      imageUrl: savedRow.imageUrl,
+                    }
+                  : focusedCandidate
+                    ? candidateToView(focusedCandidate)
+                    : {}
+              }
+              status={
+                savedRow
+                  ? "saved"
+                  : savedId
+                    ? "saving"
+                    : phase === "ready"
+                      ? "draft"
+                      : "streaming"
+              }
+            />
 
-              {status === "streaming" && phase === "ready" && (
-                <p className="px-1 text-center text-xs text-muted-foreground">
-                  Recipe extracted. The agent is deciding what to do next…
-                </p>
-              )}
-            </div>
-          </ScrollArea>
-        )}
-      </CardContent>
-    </Card>
+            {status === "streaming" && phase === "ready" && (
+              <p className="px-1 text-center text-xs text-muted-foreground">
+                Recipe extracted. The agent is deciding what to do next…
+              </p>
+            )}
+          </div>
+        </ScrollArea>
+      )}
+    </div>
   );
 }
 
 function EmptyState() {
   return (
-    <div className="flex h-full items-center justify-center p-6">
-      <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-        <div className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-          <SparklesIcon className="size-5" />
-        </div>
-        <p className="text-sm font-medium">Nothing here yet</p>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Paste a recipe blog or YouTube link in the chat. The extracted recipe
-          streams into this panel as it&apos;s built, then settles onto the saved
-          copy with its cover photo.
+    <div className="flex max-w-sm flex-col items-center gap-4 text-center">
+      <div className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-brand/15 to-accent text-brand shadow-sm ring-1 ring-brand/15">
+        <ChefHatIcon className="size-7" />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <p className="font-heading text-lg font-semibold tracking-tight">
+          Your canvas is empty
+        </p>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Drop a recipe blog or YouTube link into the chat. It builds here live,
+          then settles onto the saved copy with a cover photo.
         </p>
       </div>
     </div>

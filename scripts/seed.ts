@@ -21,8 +21,8 @@ import { ingestRecipe } from "../src/lib/ingest-recipe";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 
-function loadUrls(): string[] {
-  const raw = readFileSync(join(ROOT, "recipe_list.md"), "utf8");
+function loadUrls(listFile: string): string[] {
+  const raw = readFileSync(join(ROOT, listFile), "utf8");
   return raw
     .split("\n")
     .map((l) => l.trim())
@@ -40,10 +40,21 @@ async function main() {
     console.log("Cleared:", cleared);
   }
 
-  let urls = loadUrls();
+  // List file: --list=<file> (or first non-flag arg), default recipe_list.md.
+  const listArg = process.argv.find((a) => a.startsWith("--list="));
+  const positional = process.argv
+    .slice(2)
+    .find((a) => !a.startsWith("--"));
+  const listFile = listArg ? listArg.split("=")[1] : positional ?? "recipe_list.md";
+
+  let urls = loadUrls(listFile);
   const limitArg = process.argv.find((a) => a.startsWith("--limit="));
   if (limitArg) urls = urls.slice(0, Number(limitArg.split("=")[1]));
-  console.log(`Seeding ${urls.length} sources into ${url}\n`);
+  console.log(`Seeding ${urls.length} sources from ${listFile} into ${url}\n`);
+
+  // Capture which rows exist BEFORE this run so we can report only the new ones.
+  const before = await convex.query(api.recipes.listRecipes, {});
+  const beforeIds = new Set(before.map((r) => r._id));
 
   const ok: { url: string; titles: string[] }[] = [];
   const failed: { url: string; reason: string }[] = [];
@@ -101,6 +112,23 @@ async function main() {
   for (const r of all) {
     console.log(`  - [${r.category}] ${r.title}${r.imageUrl ? "" : "  (NO IMAGE)"}`);
   }
+
+  // New rows from THIS run only (additive runs care about what they added).
+  const newRows = all.filter((r) => !beforeIds.has(r._id));
+  console.log("\n========== NEW THIS RUN ==========");
+  console.log(`New recipes added: ${newRows.length}`);
+  let newMissingEmb = 0;
+  let newMissingImg = 0;
+  for (const r of newRows) {
+    const embOk = r.embedding && r.embedding.length === 1536;
+    if (!embOk) newMissingEmb++;
+    if (!r.imageUrl) newMissingImg++;
+    console.log(
+      `  - [${r.category}] ${r.title}  (emb ${embOk ? "1536" : "MISSING"}, ${r.imageUrl ? "img" : "NO IMAGE"})`,
+    );
+  }
+  console.log(`New rows missing 1536 embedding: ${newMissingEmb}`);
+  console.log(`New rows missing cover image: ${newMissingImg}`);
 }
 
 main().catch((e) => {

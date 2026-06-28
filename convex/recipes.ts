@@ -88,6 +88,24 @@ export const listRecipes = query({
   },
 });
 
+// Load a set of recipes by id, preserving the caller's order (used by the
+// vector search action to hydrate the rows the vector index returned by id).
+// Missing ids are skipped. Image URLs are resolved for convenience.
+export const getRecipesByIds = query({
+  args: { ids: v.array(v.id("recipes")) },
+  handler: async (ctx, args) => {
+    const rows = await Promise.all(args.ids.map((id) => ctx.db.get(id)));
+    return await Promise.all(
+      rows
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+        .map(async (r) => ({
+          ...r,
+          imageUrl: r.imageId ? await ctx.storage.getUrl(r.imageId) : null,
+        })),
+    );
+  },
+});
+
 // Tag/category filtered search.
 //
 // VECTOR-SEARCH SEAM: this query is the deterministic (tag + category) filter.

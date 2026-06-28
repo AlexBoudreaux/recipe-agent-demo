@@ -20,6 +20,7 @@ import { fetchSource } from "./source-fetcher";
 import { extractRecipes, type ExtractedRecipe } from "./recipe-extractor";
 import { embedRecipe } from "./embedding";
 import { generateAndAttachRecipeImage } from "./recipe-image";
+import { associateRecipe } from "./associate";
 
 /** One saved recipe: the structured object plus its new Convex id. */
 export interface IngestedRecipe {
@@ -35,6 +36,8 @@ export interface IngestRecipeResult {
   saved: IngestedRecipe[];
   /** Promise that settles when all async image jobs finish. Optional to await. */
   imagesSettled: Promise<void>;
+  /** Promise that settles when all fired association jobs finish. Optional to await. */
+  associationsSettled: Promise<void>;
 }
 
 export interface IngestRecipeOptions {
@@ -42,6 +45,8 @@ export interface IngestRecipeOptions {
   convex?: ConvexHttpClient;
   /** Skip kicking off cover-image generation (e.g. fast seeding runs). */
   skipImages?: boolean;
+  /** Skip firing association (e.g. when a caller will reassociateAll afterward). */
+  skipAssociation?: boolean;
 }
 
 function getConvexClient(provided?: ConvexHttpClient): ConvexHttpClient {
@@ -87,6 +92,7 @@ export async function ingestRecipe(
       sourceTitle: source.title,
       saved: [],
       imagesSettled: Promise.resolve(),
+      associationsSettled: Promise.resolve(),
     };
   }
 
@@ -129,11 +135,25 @@ export async function ingestRecipe(
         ),
       ).then(() => undefined);
 
+  // 5) fire bidirectional association: a NEW recipe scans every existing
+  // technique so links work regardless of ingest order. NOT awaited into the
+  // result and failures only log, so a flaky association can't fail the save.
+  const associationsSettled = options.skipAssociation
+    ? Promise.resolve()
+    : Promise.allSettled(
+        saved.map((s) =>
+          associateRecipe(s.id, { convex }).catch((err) => {
+            console.error(`associateRecipe(${s.id}) failed:`, err);
+          }),
+        ),
+      ).then(() => undefined);
+
   return {
     sourceType: source.sourceType,
     sourceUrl: source.url,
     sourceTitle: source.title,
     saved,
     imagesSettled,
+    associationsSettled,
   };
 }

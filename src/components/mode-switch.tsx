@@ -1,7 +1,13 @@
 "use client";
 
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DownloadIcon, SearchIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { AGENT_MODES, type AgentMode } from "@/lib/agent-mode";
+
+const MODE_ICON: Record<AgentMode, React.ComponentType<{ className?: string }>> = {
+  ingest: DownloadIcon,
+  search: SearchIcon,
+};
 
 export function ModeSwitch({
   value,
@@ -11,17 +17,28 @@ export function ModeSwitch({
   onValueChange: (mode: AgentMode) => void;
 }) {
   return (
-    <Tabs
-      value={value}
-      onValueChange={(v) => onValueChange(v as AgentMode)}
-    >
-      <TabsList>
-        {AGENT_MODES.map((mode) => (
-          <TabsTrigger key={mode.value} value={mode.value}>
+    <div className="inline-flex items-center gap-0.5 rounded-full bg-muted p-0.5 ring-1 ring-border/60">
+      {AGENT_MODES.map((mode) => {
+        const Icon = MODE_ICON[mode.value];
+        const active = value === mode.value;
+        return (
+          <button
+            key={mode.value}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onValueChange(mode.value)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all",
+              active
+                ? "bg-card text-foreground shadow-sm ring-1 ring-border/70"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Icon className="size-3.5" />
             {mode.label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
-    </Tabs>
+          </button>
+        );
+      })}
+    </div>
   );
 }

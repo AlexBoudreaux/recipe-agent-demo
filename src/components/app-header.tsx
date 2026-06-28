@@ -1,37 +1,21 @@
 "use client";
 
-import { ChefHatIcon } from "lucide-react";
-import { ModeSwitch } from "@/components/mode-switch";
+import { BookOpenIcon } from "lucide-react";
 import { ModeToggle } from "@/components/mode-toggle";
-import { type AgentMode } from "@/lib/agent-mode";
 
-export function AppHeader({
-  mode,
-  onModeChange,
-}: {
-  mode: AgentMode;
-  onModeChange: (mode: AgentMode) => void;
-}) {
+export function AppHeader() {
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b bg-background px-4">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border/70 bg-background/80 px-4 backdrop-blur-sm">
       <div className="flex items-center gap-2.5">
-        <div className="flex size-7 items-center justify-center rounded-md bg-brand text-brand-foreground">
-          <ChefHatIcon className="size-4" />
+        <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand to-brand/70 text-brand-foreground shadow-sm ring-1 ring-brand/20">
+          <BookOpenIcon className="size-4.5" />
         </div>
-        <div className="flex items-baseline gap-2">
-          <span className="text-sm font-semibold tracking-tight">
-            Recipe Agent
-          </span>
-          <span className="hidden text-xs text-muted-foreground sm:inline">
-            augment the chef
-          </span>
-        </div>
+        <span className="font-heading text-base font-semibold tracking-tight">
+          Cookbook
+        </span>
       </div>
 
-      <div className="flex items-center gap-2">
-        <ModeSwitch value={mode} onValueChange={onModeChange} />
-        <ModeToggle />
-      </div>
+      <ModeToggle />
     </header>
   );
 }

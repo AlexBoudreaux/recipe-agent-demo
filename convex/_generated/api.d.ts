@@ -14,6 +14,7 @@ import type * as images from "../images.js";
 import type * as menuPlans from "../menuPlans.js";
 import type * as menus from "../menus.js";
 import type * as recipes from "../recipes.js";
+import type * as search from "../search.js";
 import type * as techniques from "../techniques.js";
 
 import type {
@@ -29,6 +30,7 @@ declare const fullApi: ApiFromModules<{
   menuPlans: typeof menuPlans;
   menus: typeof menus;
   recipes: typeof recipes;
+  search: typeof search;
   techniques: typeof techniques;
 }>;
 

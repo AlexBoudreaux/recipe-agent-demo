@@ -64,8 +64,12 @@ export type Category =
   | "appetizer"
   | "sauce";
 
-/** What a tag describes. The controlled vocabulary is split into these kinds. */
-export type TagKind = "protein" | "dish";
+/**
+ * What a tag describes. The controlled vocabulary is split into these kinds.
+ * "ingredient" is a SUBSTANTIVE main-ingredient tag (asparagus, corn, potato)
+ * for dishes whose identity is a vegetable, not a protein or a dish-form.
+ */
+export type TagKind = "protein" | "dish" | "ingredient";
 
 /**
  * A controlled-vocabulary tag. `value` is the canonical lowercase token used

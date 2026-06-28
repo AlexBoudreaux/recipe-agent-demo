@@ -33,3 +33,32 @@ export async function embedRecipe(input: {
 }): Promise<number[]> {
   return embedText(recipeEmbeddingText(input));
 }
+
+/**
+ * Compose the canonical text that represents a TECHNIQUE in vector space.
+ * Single source of truth for technique embedding (title + applicability +
+ * description). `applicability` leads because it is the WHEN/WHAT-this-applies-to
+ * text that drives semantic association to recipes; title and description add
+ * disambiguating context. Keep this the only place that decides the text so
+ * ingest, seeding, and any re-embed agree exactly.
+ */
+export function techniqueEmbeddingText(input: {
+  title: string;
+  applicability: string;
+  description: string;
+}): string {
+  return [input.title, input.applicability, input.description]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+/** Embed a technique (title + applicability + description) for storage/association. */
+export async function embedTechnique(input: {
+  title: string;
+  applicability: string;
+  description: string;
+}): Promise<number[]> {
+  return embedText(techniqueEmbeddingText(input));
+}

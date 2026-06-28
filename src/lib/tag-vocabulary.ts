@@ -55,6 +55,62 @@ export const DISH_TAGS: readonly string[] = [
 ] as const;
 
 /**
+ * Canonical main-ingredient tags for dishes whose identity is a vegetable (not a
+ * protein or a dish-form). These are SUBSTANTIVE tags: a technique tagged
+ * "asparagus" should bind to asparagus dishes, the way a "shrimp" technique
+ * binds to shrimp dishes. Added so the non-protein techniques (asparagus salt
+ * brine, off-heat corn, potato-skin salt soak) have a substantive cluster to
+ * associate to instead of leaking across method tags like grill/roast.
+ */
+export const INGREDIENT_TAGS: readonly string[] = [
+  "asparagus",
+  "corn",
+  "potato",
+] as const;
+
+/**
+ * Cooking-METHOD tags. These describe HOW a dish is cooked, not WHAT it is, so
+ * a shared method tag must NOT by itself justify an association (a shrimp salt
+ * rest is not "applicable" to grilled asparagus just because both are grilled).
+ * They remain valid controlled tags for search/classification; the association
+ * guardrail (see isSubstantiveTag + association-engine) just refuses to treat a
+ * method-only overlap as a qualifying match. Superset of the method tags that
+ * happen to live in DISH_TAGS (grill/roast/stir-fry) plus common siblings, so
+ * the rule is robust if the vocabulary grows.
+ */
+export const METHOD_TAGS: readonly string[] = [
+  "grill",
+  "roast",
+  "bake",
+  "fry",
+  "stir-fry",
+  "saute",
+  "sauté",
+  "braise",
+  "poach",
+  "steam",
+  "boil",
+  "smoke",
+] as const;
+
+const METHOD_TAG_SET = new Set<string>(METHOD_TAGS);
+
+/** True if a tag value is a pure cooking-method tag (grill/roast/fry/...). */
+export function isMethodTag(value: string): boolean {
+  return METHOD_TAG_SET.has(normalizeInput(value));
+}
+
+/**
+ * True if a tag is SUBSTANTIVE — a protein, main-ingredient, or specific
+ * dish-type — rather than a pure cooking method. This is the qualifying-overlap
+ * predicate the AssociationEngine uses: only a shared substantive tag can make
+ * a technique<->recipe pair eligible to associate.
+ */
+export function isSubstantiveTag(value: string): boolean {
+  return !isMethodTag(value);
+}
+
+/**
  * Synonym table mapping common input variants to a canonical tag. Keys are
  * normalized (lowercase, singular-ish) inputs; values are the canonical tag.
  * The canonical tags themselves are added automatically below, so only true
@@ -82,6 +138,9 @@ const RAW_SYNONYMS: Record<string, string> = {
   beans: "bean",
   chickpea: "bean",
   lentil: "bean",
+  // main ingredients
+  potatoes: "potato",
+  asparagus: "asparagus",
   // dish types
   spaghetti: "pasta",
   noodles: "noodle",
@@ -105,6 +164,9 @@ function buildSynonymMap(): Map<string, Tag> {
   }
   for (const value of DISH_TAGS) {
     map.set(value, { value, kind: "dish" });
+  }
+  for (const value of INGREDIENT_TAGS) {
+    map.set(value, { value, kind: "ingredient" });
   }
   for (const [alias, canonical] of Object.entries(RAW_SYNONYMS)) {
     const tag = map.get(canonical);

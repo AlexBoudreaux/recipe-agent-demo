@@ -46,6 +46,16 @@ export interface AssociationOptions {
    * no tag overlap is dropped no matter how its vector looks.
    */
   requireTagOverlap?: boolean;
+  /**
+   * Predicate deciding whether a shared tag QUALIFIES the pair for association.
+   * Only shared tags passing this count toward the requireTagOverlap guardrail,
+   * and only these appear in `Match.sharedTags`. Production passes
+   * `isSubstantiveTag` so a pure cooking-METHOD overlap (grill/roast/fry) can't
+   * by itself create a match — a shrimp salt-rest is not "applicable" to grilled
+   * asparagus merely because both are grilled. Default: every shared tag
+   * qualifies (backward-compatible with callers that pass no predicate).
+   */
+  isQualifyingTag?: (tag: string) => boolean;
 }
 
 /**
@@ -87,17 +97,20 @@ export function associate<S extends Taggable, C extends Taggable>(
   resolver: EmbeddingResolver,
   options: AssociationOptions = {},
 ): Match<C>[] {
-  const { minScore = 0, limit, requireTagOverlap = true } = options;
+  const { minScore = 0, limit, requireTagOverlap = true, isQualifyingTag } = options;
   const sourceVec = resolver(source.id);
 
   const matches: Match<C>[] = [];
   for (const candidate of candidates) {
     if (candidate.id === source.id) continue;
     const shared = sharedTags(source, candidate);
-    if (requireTagOverlap && shared.length === 0) continue;
+    // Only qualifying tags count toward eligibility and explainability. With no
+    // predicate every shared tag qualifies (unchanged legacy behavior).
+    const qualifying = isQualifyingTag ? shared.filter(isQualifyingTag) : shared;
+    if (requireTagOverlap && qualifying.length === 0) continue;
     const score = cosineSimilarity(sourceVec, resolver(candidate.id));
     if (score < minScore) continue;
-    matches.push({ item: candidate, score, sharedTags: shared });
+    matches.push({ item: candidate, score, sharedTags: qualifying });
   }
 
   matches.sort((a, b) => {

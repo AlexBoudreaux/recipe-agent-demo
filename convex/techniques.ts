@@ -12,6 +12,7 @@ export const saveTechnique = mutation({
     applicability: v.string(),
     steps: v.array(v.string()),
     addedIngredients: v.array(addedIngredientValidator),
+    tags: v.array(v.string()),
     embedding: v.array(v.float64()),
   },
   returns: v.id("techniques"),
@@ -24,6 +25,7 @@ export const saveTechnique = mutation({
       applicability: args.applicability,
       steps: args.steps,
       addedIngredients: args.addedIngredients,
+      tags: args.tags,
       embedding: args.embedding,
       createdAt: Date.now(),
     });

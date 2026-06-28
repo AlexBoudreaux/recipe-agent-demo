@@ -20,7 +20,7 @@ import { generateObject, streamObject, type DeepPartial } from "ai";
 import { z } from "zod";
 import { chatModel } from "./model";
 import type { Category, Recipe, Unit } from "./types";
-import { assignTags, CATEGORIES, DISH_TAGS, PROTEIN_TAGS } from "./tag-vocabulary";
+import { assignTags, CATEGORIES, DISH_TAGS, INGREDIENT_TAGS, PROTEIN_TAGS } from "./tag-vocabulary";
 import type { SourceType } from "./source-fetcher";
 
 /**
@@ -62,7 +62,11 @@ type _UnitsCoverAll = Exclude<Unit, (typeof UNITS)[number]> extends never
 const _unitsCoverAll: _UnitsCoverAll = true;
 void _unitsCoverAll;
 
-const unitEnum = z.enum(UNITS);
+/** Zod enum of canonical units. Exported so the technique extractor reuses the
+ * exact same constrained unit set (one source of truth for added-ingredient units). */
+export const unitEnum = z.enum(UNITS);
+/** Runtime list of canonical units (excludes `""`/no-unit by default callers filter). */
+export { UNITS };
 const categoryEnum = z.enum(CATEGORIES as readonly [Category, ...Category[]]);
 
 /** Ingredient as the LLM must return it. unit is hard-constrained to canon. */
@@ -137,7 +141,7 @@ export interface ExtractRecipesInput {
 }
 
 function buildPrompt(input: ExtractRecipesInput): string {
-  const allowedTags = [...PROTEIN_TAGS, ...DISH_TAGS].join(", ");
+  const allowedTags = [...PROTEIN_TAGS, ...INGREDIENT_TAGS, ...DISH_TAGS].join(", ");
   const allowedUnits = UNITS.filter((u) => u !== "").join(", ") + ", or \"\" (no unit)";
   const allowedCategories = (CATEGORIES as readonly string[]).join(", ");
   return [

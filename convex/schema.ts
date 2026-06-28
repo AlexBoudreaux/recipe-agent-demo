@@ -110,6 +110,10 @@ export default defineSchema({
     applicability: v.string(), // text, embedded
     steps: v.array(v.string()),
     addedIngredients: v.array(addedIngredientValidator),
+    // Controlled-vocab tags (same vocabulary as recipes). Stored so the
+    // AssociationEngine's tag-overlap filter works bidirectionally and
+    // identically whether we associate right after save or from a stored row.
+    tags: v.array(v.string()),
     embedding: v.array(v.float64()),
     createdAt: v.number(),
   })
