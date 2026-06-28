@@ -23,6 +23,35 @@ export const deleteRecipe = mutation({
 });
 
 /**
+ * DEV-ONLY single-technique delete (+ its associations and the denormalized
+ * techniqueRefs that point at it). Mirrors deleteRecipe; used to prune a
+ * technique row (e.g. a verification ingest) without disturbing the rest.
+ */
+export const deleteTechnique = mutation({
+  args: { techniqueId: v.id("techniques") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const links = await ctx.db
+      .query("associations")
+      .withIndex("by_technique", (q) => q.eq("techniqueId", args.techniqueId))
+      .collect();
+    for (const link of links) {
+      const recipe = await ctx.db.get(link.recipeId);
+      if (recipe) {
+        await ctx.db.patch(link.recipeId, {
+          techniqueRefs: recipe.techniqueRefs.filter(
+            (id) => id !== args.techniqueId,
+          ),
+        });
+      }
+      await ctx.db.delete(link._id);
+    }
+    await ctx.db.delete(args.techniqueId);
+    return null;
+  },
+});
+
+/**
  * DEV-ONLY: wipe ONLY techniques + their associations, leaving recipes, menus,
  * and menu plans intact. Used to re-seed the technique layer from scratch
  * (chunk 7A refinement) without re-ingesting the whole recipe library. Also

@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Cookbook",
+  title: "Cookbook AI",
   description:
     "Capture recipes and techniques from messy sources, build a library that compounds, and plan meals with a human in control.",
 };
@@ -30,9 +30,9 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full overflow-hidden overscroll-none antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="h-full flex flex-col overflow-hidden overscroll-none">
         <ThemeProvider
           attribute="class"
           defaultTheme="light"

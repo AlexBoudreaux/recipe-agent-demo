@@ -29,7 +29,7 @@
  * bias hard to the 1-2 most significant transferable techniques, never a pile
  * of micro-tips. Picking among any returned candidates is the agent's job.
  */
-import { generateObject } from "ai";
+import { generateObject, streamObject, type DeepPartial } from "ai";
 import { z } from "zod";
 import { chatModel } from "./model";
 import type { AddedIngredient, Unit } from "./types";
@@ -180,4 +180,41 @@ export async function extractTechniques(
     prompt: buildPrompt(input),
   });
   return object.techniques.map(cleanExtractedTechnique);
+}
+
+/** A technique as it looks mid-stream: every field may still be absent/partial. */
+export type PartialExtractedTechnique = DeepPartial<RawTechnique>;
+
+/**
+ * The streaming twin of {@link extractTechniques}. Used by the agent's
+ * fetch+extract-technique tool so a technique builds LIVE in the artifact panel
+ * exactly like a recipe does. Same schema, prompt, and cleaning as the blocking
+ * path, so a technique looks the same whether it streamed in or not.
+ *
+ * Returns:
+ *  - `partialTechniques`: async iterable of the techniques-so-far (DeepPartial),
+ *    re-emitted on every delta — feed straight to the UI.
+ *  - `final()`: resolves to the fully cleaned, vocab-safe ExtractedTechnique[]
+ *    once the stream completes (the array the agent reasons over and saves).
+ */
+export function streamExtractTechniques(input: ExtractTechniquesInput): {
+  partialTechniques: AsyncIterable<PartialExtractedTechnique[]>;
+  final: () => Promise<ExtractedTechnique[]>;
+} {
+  const result = streamObject({
+    model: chatModel,
+    schema: extractionSchema,
+    prompt: buildPrompt(input),
+  });
+
+  async function* partialTechniques(): AsyncIterable<PartialExtractedTechnique[]> {
+    for await (const partial of result.partialObjectStream) {
+      yield (partial.techniques ?? []).filter(Boolean) as PartialExtractedTechnique[];
+    }
+  }
+
+  return {
+    partialTechniques: partialTechniques(),
+    final: async () => (await result.object).techniques.map(cleanExtractedTechnique),
+  };
 }

@@ -4,74 +4,162 @@ import * as React from "react";
 import { useQuery } from "convex/react";
 import type { UseChatHelpers } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
-import { ChefHatIcon } from "lucide-react";
+import { LibraryBigIcon } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { RecipeCard, type RecipeView } from "@/components/recipe-card";
+import {
+  RecipeCard,
+  type RecipeView,
+  type RecipeCardStatus,
+} from "@/components/recipe-card";
+import { TechniqueCard, type TechniqueView } from "@/components/technique-card";
+import { LibraryGrid } from "@/components/library-grid";
+import { SearchGrid } from "@/components/search-grid";
+import { RecipeDetail } from "@/components/recipe-detail";
 import type {
   CandidateRecipe,
+  CandidateTechnique,
   ExtractEvent,
   PartialCandidate,
+  PartialTechniqueCandidate,
   SaveRecipeResult,
+  SaveTechniqueResult,
+  SearchEvent,
+  SearchResultItem,
+  TechniqueExtractEvent,
 } from "@/lib/artifact-types";
 
 const norm = (s?: string) => (s ?? "").trim().toLowerCase();
+
+// The soft, dotted workspace everything builds onto. Kept verbatim from the
+// user's manual tuning of the canvas dot pattern.
+const CANVAS_BG =
+  "relative h-full min-h-0 bg-[radial-gradient(oklch(0.5_0.02_55/0.16)_1.2px,transparent_1.2px)] [background-size:18px_18px]";
 
 type ToolPart = {
   type: string;
   state?: string;
   preliminary?: boolean;
+  input?: { queryText?: string };
   output?: unknown;
 };
 
-type Artifact = {
-  phase: "idle" | "fetching" | "extracting" | "ready";
-  candidates: Array<CandidateRecipe | PartialCandidate>;
-  savedByTitle: Map<string, string>;
-};
+type Phase = "fetching" | "extracting" | "ready";
 
 /**
- * Derive the artifact-panel state from the agent's tool parts. One pass over the
- * messages: the latest fetch_and_extract drives the streaming card; every
- * save_recipe output records a saved id (keyed by title) so the panel can swap a
- * draft for its reactive Convex row. Errors/empties are ignored here — the chat
- * surfaces those — so a bad link never wipes a good card.
+ * The discriminated artifact derived from the agent's tool parts. The LAST
+ * extract-or-search the agent ran wins, so the panel always reflects the chef's
+ * most recent action. Recipe and technique streams share a shape; search carries
+ * the ranked hits the grid renders.
  */
-function deriveArtifact(messages: UIMessage[]): Artifact {
-  let phase: Artifact["phase"] = "idle";
-  let candidates: Artifact["candidates"] = [];
-  const savedByTitle = new Map<string, string>();
+type DerivedArtifact =
+  | { kind: "none" }
+  | {
+      kind: "recipe";
+      phase: Phase;
+      candidates: Array<CandidateRecipe | PartialCandidate>;
+      savedByTitle: Map<string, string>;
+    }
+  | {
+      kind: "technique";
+      phase: Phase;
+      candidates: Array<CandidateTechnique | PartialTechniqueCandidate>;
+      savedByTitle: Map<string, string>;
+    }
+  | { kind: "search"; query: string; results: SearchResultItem[]; pending: boolean };
+
+/**
+ * One pass over the messages builds the recipe, technique, and search states in
+ * parallel and remembers which kind the agent touched most recently. Errors and
+ * empties are ignored here (the chat surfaces those) so a bad link never wipes a
+ * good card.
+ */
+function deriveArtifact(messages: UIMessage[]): DerivedArtifact {
+  let recipePhase: Phase | null = null;
+  let recipeCandidates: Array<CandidateRecipe | PartialCandidate> = [];
+  const recipeSaved = new Map<string, string>();
+
+  let techPhase: Phase | null = null;
+  let techCandidates: Array<CandidateTechnique | PartialTechniqueCandidate> = [];
+  const techSaved = new Map<string, string>();
+
+  let search: { query: string; results: SearchResultItem[]; pending: boolean } | null =
+    null;
+
+  let last: "recipe" | "technique" | "search" | null = null;
 
   for (const m of messages) {
     for (const raw of m.parts) {
       const part = raw as unknown as ToolPart;
 
+      // --- recipe extraction ---
       if (part.type === "tool-fetch_and_extract") {
+        last = "recipe";
         if (part.state === "input-streaming" || part.state === "input-available") {
-          // The model is still composing the call (or it's queued): a fetch is
-          // imminent. Show the building state without dropping a prior card yet.
-          if (phase === "idle") phase = "fetching";
+          if (recipePhase === null) recipePhase = "fetching";
           continue;
         }
         if (part.state === "output-available" && part.output) {
           const ev = part.output as ExtractEvent;
           if (ev.status === "fetching") {
-            phase = "fetching";
-            candidates = [];
+            recipePhase = "fetching";
+            recipeCandidates = [];
           } else if (ev.status === "extracting") {
-            phase = "extracting";
-            candidates = ev.candidates;
+            recipePhase = "extracting";
+            recipeCandidates = ev.candidates;
           } else if (ev.status === "ready") {
-            phase = "ready";
-            candidates = ev.candidates;
+            recipePhase = "ready";
+            recipeCandidates = ev.candidates;
           }
-          // error | empty: leave the prior card in place (chat explains it).
         }
+        continue;
       }
 
+      // --- technique extraction ---
+      if (part.type === "tool-fetch_and_extract_technique") {
+        last = "technique";
+        if (part.state === "input-streaming" || part.state === "input-available") {
+          if (techPhase === null) techPhase = "fetching";
+          continue;
+        }
+        if (part.state === "output-available" && part.output) {
+          const ev = part.output as TechniqueExtractEvent;
+          if (ev.status === "fetching") {
+            techPhase = "fetching";
+            techCandidates = [];
+          } else if (ev.status === "extracting") {
+            techPhase = "extracting";
+            techCandidates = ev.candidates;
+          } else if (ev.status === "ready") {
+            techPhase = "ready";
+            techCandidates = ev.candidates;
+          }
+        }
+        continue;
+      }
+
+      // --- search ---
+      if (part.type === "tool-search_recipes") {
+        last = "search";
+        if (part.state === "input-streaming" || part.state === "input-available") {
+          search = {
+            query: part.input?.queryText ?? "",
+            results: [],
+            pending: true,
+          };
+          continue;
+        }
+        if (part.state === "output-available" && part.output) {
+          const ev = part.output as SearchEvent;
+          search = { query: ev.query, results: ev.results, pending: false };
+        }
+        continue;
+      }
+
+      // --- saves: record id by title so a draft can swap to its Convex row ---
       if (
         part.type === "tool-save_recipe" &&
         part.state === "output-available" &&
@@ -79,15 +167,43 @@ function deriveArtifact(messages: UIMessage[]): Artifact {
         part.output
       ) {
         const out = part.output as SaveRecipeResult;
-        if (out.savedRecipeId) savedByTitle.set(norm(out.title), out.savedRecipeId);
+        if (out.savedRecipeId) recipeSaved.set(norm(out.title), out.savedRecipeId);
+      }
+      if (
+        part.type === "tool-save_technique" &&
+        part.state === "output-available" &&
+        !part.preliminary &&
+        part.output
+      ) {
+        const out = part.output as SaveTechniqueResult;
+        if (out.savedTechniqueId) techSaved.set(norm(out.title), out.savedTechniqueId);
       }
     }
   }
 
-  return { phase, candidates, savedByTitle };
+  if (last === "recipe" && recipePhase !== null) {
+    return {
+      kind: "recipe",
+      phase: recipePhase,
+      candidates: recipeCandidates,
+      savedByTitle: recipeSaved,
+    };
+  }
+  if (last === "technique" && techPhase !== null) {
+    return {
+      kind: "technique",
+      phase: techPhase,
+      candidates: techCandidates,
+      savedByTitle: techSaved,
+    };
+  }
+  if (last === "search" && search) {
+    return { kind: "search", ...search };
+  }
+  return { kind: "none" };
 }
 
-function candidateToView(c: CandidateRecipe | PartialCandidate): RecipeView {
+function recipeToView(c: CandidateRecipe | PartialCandidate): RecipeView {
   return {
     title: c.title,
     category: c.category,
@@ -99,6 +215,27 @@ function candidateToView(c: CandidateRecipe | PartialCandidate): RecipeView {
   };
 }
 
+function techniqueToView(
+  c: CandidateTechnique | PartialTechniqueCandidate,
+): TechniqueView {
+  return {
+    title: c.title,
+    description: c.description,
+    applicability: c.applicability,
+    steps: c.steps,
+    addedIngredients: c.addedIngredients,
+    tags: c.tags?.filter((t): t is string => typeof t === "string"),
+  };
+}
+
+// The explicit user navigation overlaid on top of the message-derived view. It
+// expires the moment a new chat message arrives (tracked by message count) so a
+// fresh extraction/search always takes the canvas back.
+type PanelView =
+  | { kind: "follow" }
+  | { kind: "grid" }
+  | { kind: "detail"; recipeId: string; back: PanelView };
+
 export function ArtifactPanel({
   messages,
   status,
@@ -109,46 +246,130 @@ export function ArtifactPanel({
   /** px to keep clear on the right so the floating chat never covers content */
   reservedRight?: number;
 }) {
-  const { phase, candidates, savedByTitle } = React.useMemo(
-    () => deriveArtifact(messages),
-    [messages],
-  );
+  const artifact = React.useMemo(() => deriveArtifact(messages), [messages]);
 
-  // Reset focus to the first candidate whenever a new extraction arrives.
+  // --- explicit navigation (clicking a card / Back / Library), no effects ---
+  const [view, setView] = React.useState<PanelView>({ kind: "follow" });
+  const [viewLen, setViewLen] = React.useState(0);
+  const navigate = React.useCallback(
+    (v: PanelView) => {
+      setView(v);
+      setViewLen(messages.length);
+    },
+    [messages.length],
+  );
+  // A non-follow view only holds until the next message; then we follow again.
+  const activeView: PanelView =
+    view.kind === "follow" || viewLen === messages.length ? view : { kind: "follow" };
+
+  // --- focus among multiple candidates; reset on a new candidate set WITHOUT an
+  // effect (the React-sanctioned "adjust state during render" pattern) ---
+  const candidates =
+    artifact.kind === "recipe" || artifact.kind === "technique"
+      ? artifact.candidates
+      : [];
   const identity = candidates.map((c) => norm(c.title)).join("|");
   const [focused, setFocused] = React.useState(0);
-  React.useEffect(() => {
+  const [focusIdentity, setFocusIdentity] = React.useState(identity);
+  if (identity !== focusIdentity) {
+    setFocusIdentity(identity);
     setFocused(0);
-  }, [identity]);
+  }
+  const focusedIndex = Math.min(focused, Math.max(0, candidates.length - 1));
+  const focusedTitle = candidates[focusedIndex]?.title;
 
-  const focusedCandidate = candidates[Math.min(focused, candidates.length - 1)];
-  const savedId = focusedCandidate
-    ? savedByTitle.get(norm(focusedCandidate.title))
-    : undefined;
+  // --- subscribe to the saved Convex rows (skip until an id exists) ---
+  const recipeSavedId =
+    artifact.kind === "recipe" && focusedTitle
+      ? artifact.savedByTitle.get(norm(focusedTitle))
+      : undefined;
+  const techSavedId =
+    artifact.kind === "technique" && focusedTitle
+      ? artifact.savedByTitle.get(norm(focusedTitle))
+      : undefined;
 
-  // The saved row is the source of truth once it exists. "skip" until we have an
-  // id; the reactive query then streams in the cover image when it lands.
-  const savedRow = useQuery(
+  const savedRecipe = useQuery(
     api.recipes.getRecipe,
-    savedId ? { recipeId: savedId as Id<"recipes"> } : "skip",
+    recipeSavedId ? { recipeId: recipeSavedId as Id<"recipes"> } : "skip",
+  );
+  const savedTechnique = useQuery(
+    api.techniques.getTechnique,
+    techSavedId ? { techniqueId: techSavedId as Id<"techniques"> } : "skip",
   );
 
-  const hasArtifact = candidates.length > 0 || phase === "fetching";
+  const openDetail = React.useCallback(
+    (recipeId: string, back: PanelView) =>
+      navigate({ kind: "detail", recipeId, back }),
+    [navigate],
+  );
 
-  const statusBadge =
-    candidates.length > 1
-      ? `${candidates.length} recipes`
-      : phase === "ready" || savedId
-        ? "1 recipe"
-        : phase === "fetching" || phase === "extracting"
-          ? "Building…"
-          : null;
+  const padRight = reservedRight ? reservedRight + 24 : undefined;
+  const scrolled = (node: React.ReactNode) => (
+    <div className={CANVAS_BG}>
+      <ScrollArea className="h-full">
+        <div style={{ paddingRight: padRight }}>{node}</div>
+      </ScrollArea>
+    </div>
+  );
 
-  // The canvas is the primary surface: a soft, dotted workspace the recipe
-  // builds onto. Content is centered in the space the floating chat leaves free.
-  return (
-    <div className="relative h-full min-h-0 bg-[radial-gradient(oklch(0.6_0.02_55/0.07)_1px,transparent_1px)] [background-size:18px_18px]">
-      {statusBadge && (
+  // 1) Explicit detail override.
+  if (activeView.kind === "detail") {
+    return scrolled(
+      <RecipeDetail
+        recipeId={activeView.recipeId}
+        onBack={() => navigate(activeView.back)}
+      />,
+    );
+  }
+
+  // 2) Explicit "browse library" override.
+  if (activeView.kind === "grid") {
+    return scrolled(
+      <LibraryGrid onOpen={(id) => openDetail(id, { kind: "grid" })} />,
+    );
+  }
+
+  // 3) Follow the conversation — search results grid.
+  if (artifact.kind === "search") {
+    return scrolled(
+      artifact.pending ? (
+        <SearchPending query={artifact.query} />
+      ) : (
+        <SearchGrid
+          query={artifact.query}
+          results={artifact.results}
+          onOpen={(id) => openDetail(id, { kind: "follow" })}
+        />
+      ),
+    );
+  }
+
+  // 3b) Follow the conversation — a streaming recipe or technique card.
+  if (artifact.kind === "recipe" || artifact.kind === "technique") {
+    const isRecipe = artifact.kind === "recipe";
+    const savedRow = isRecipe ? savedRecipe : savedTechnique;
+    const savedId = isRecipe ? recipeSavedId : techSavedId;
+    const cardStatus: RecipeCardStatus = savedRow
+      ? "saved"
+      : savedId
+        ? "saving"
+        : artifact.phase === "ready"
+          ? "draft"
+          : "streaming";
+
+    const statusBadge =
+      candidates.length > 1
+        ? `${candidates.length} ${isRecipe ? "recipes" : "techniques"}`
+        : artifact.phase === "ready" || savedId
+          ? isRecipe
+            ? "1 recipe"
+            : "1 technique"
+          : "Building…";
+
+    const focusedCandidate = candidates[focusedIndex];
+
+    return (
+      <div className={CANVAS_BG}>
         <div className="pointer-events-none absolute left-4 top-4 z-10">
           <Badge
             variant="secondary"
@@ -157,29 +378,26 @@ export function ArtifactPanel({
             {statusBadge}
           </Badge>
         </div>
-      )}
-
-      {!hasArtifact ? (
-        <div
-          className="flex h-full items-center justify-center p-6"
-          style={{ paddingRight: reservedRight ? reservedRight + 24 : undefined }}
+        <button
+          type="button"
+          onClick={() => navigate({ kind: "grid" })}
+          className="absolute top-4 z-10 inline-flex items-center gap-1.5 rounded-full border bg-card/85 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm ring-1 ring-border/60 backdrop-blur transition-colors hover:bg-accent hover:text-foreground"
+          style={{ right: padRight ? padRight - 12 : 16 }}
         >
-          <EmptyState />
-        </div>
-      ) : (
+          <LibraryBigIcon className="size-3.5" />
+          Library
+        </button>
+
         <ScrollArea className="h-full">
           <div
             className="mx-auto flex max-w-2xl flex-col gap-4 px-6 py-8"
-            style={{
-              paddingRight: reservedRight ? reservedRight + 24 : undefined,
-            }}
+            style={{ paddingRight: padRight }}
           >
-            {/* Multi-recipe chooser. The agent also asks in chat; this mirrors
-                the options visually and lets the user eyeball each one. */}
+            {/* Multi-candidate chooser, mirrors the agent's chat question. */}
             {candidates.length > 1 && (
               <div className="flex flex-wrap gap-2">
                 {candidates.map((c, i) => {
-                  const isSaved = savedByTitle.has(norm(c.title));
+                  const isSaved = artifact.savedByTitle.has(norm(c.title));
                   return (
                     <button
                       key={i}
@@ -187,12 +405,12 @@ export function ArtifactPanel({
                       onClick={() => setFocused(i)}
                       className={cn(
                         "rounded-full border px-3 py-1 text-xs transition-colors",
-                        i === focused
+                        i === focusedIndex
                           ? "border-brand bg-brand/10 text-brand"
                           : "bg-card text-muted-foreground hover:bg-accent",
                       )}
                     >
-                      {c.title ?? `Recipe ${i + 1}`}
+                      {c.title ?? `${isRecipe ? "Recipe" : "Technique"} ${i + 1}`}
                       {isSaved ? " ✓" : ""}
                     </button>
                   );
@@ -200,61 +418,71 @@ export function ArtifactPanel({
               </div>
             )}
 
-            <RecipeCard
-              recipe={
-                savedRow
-                  ? {
-                      title: savedRow.title,
-                      category: savedRow.category,
-                      summary: savedRow.summary,
-                      yield: savedRow.yield,
-                      ingredients: savedRow.ingredients,
-                      steps: savedRow.steps,
-                      tags: savedRow.tags,
-                      imageUrl: savedRow.imageUrl,
-                    }
-                  : focusedCandidate
-                    ? candidateToView(focusedCandidate)
-                    : {}
-              }
-              status={
-                savedRow
-                  ? "saved"
-                  : savedId
-                    ? "saving"
-                    : phase === "ready"
-                      ? "draft"
-                      : "streaming"
-              }
-            />
+            {isRecipe ? (
+              <RecipeCard
+                recipe={
+                  savedRecipe
+                    ? {
+                        title: savedRecipe.title,
+                        category: savedRecipe.category,
+                        summary: savedRecipe.summary,
+                        yield: savedRecipe.yield,
+                        ingredients: savedRecipe.ingredients,
+                        steps: savedRecipe.steps,
+                        tags: savedRecipe.tags,
+                        imageUrl: savedRecipe.imageUrl,
+                      }
+                    : focusedCandidate
+                      ? recipeToView(focusedCandidate as CandidateRecipe)
+                      : {}
+                }
+                status={cardStatus}
+              />
+            ) : (
+              <TechniqueCard
+                technique={
+                  savedTechnique
+                    ? {
+                        title: savedTechnique.title,
+                        description: savedTechnique.description,
+                        applicability: savedTechnique.applicability,
+                        steps: savedTechnique.steps,
+                        addedIngredients: savedTechnique.addedIngredients,
+                        tags: savedTechnique.tags,
+                      }
+                    : focusedCandidate
+                      ? techniqueToView(focusedCandidate as CandidateTechnique)
+                      : {}
+                }
+                status={cardStatus}
+              />
+            )}
 
-            {status === "streaming" && phase === "ready" && (
+            {status === "streaming" && artifact.phase === "ready" && (
               <p className="px-1 text-center text-xs text-muted-foreground">
-                Recipe extracted. The agent is deciding what to do next…
+                {isRecipe ? "Recipe" : "Technique"} extracted. The agent is
+                deciding what to do next…
               </p>
             )}
           </div>
         </ScrollArea>
-      )}
-    </div>
+      </div>
+    );
+  }
+
+  // 4) Default: the live library grid (PRD story 46).
+  return scrolled(
+    <LibraryGrid onOpen={(id) => openDetail(id, { kind: "follow" })} />,
   );
 }
 
-function EmptyState() {
+function SearchPending({ query }: { query: string }) {
   return (
-    <div className="flex max-w-sm flex-col items-center gap-4 text-center">
-      <div className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-brand/15 to-accent text-brand shadow-sm ring-1 ring-brand/15">
-        <ChefHatIcon className="size-7" />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <p className="font-heading text-lg font-semibold tracking-tight">
-          Your canvas is empty
-        </p>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Drop a recipe blog or YouTube link into the chat. It builds here live,
-          then settles onto the saved copy with a cover photo.
-        </p>
-      </div>
+    <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-3 px-6 py-24 text-center text-muted-foreground">
+      <div className="size-8 animate-spin rounded-full border-2 border-brand/30 border-t-brand" />
+      <p className="text-sm">
+        Searching your library{query ? ` for “${query}”` : ""}…
+      </p>
     </div>
   );
 }

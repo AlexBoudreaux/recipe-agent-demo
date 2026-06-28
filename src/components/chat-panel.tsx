@@ -13,7 +13,6 @@ import {
   CheckCircle2Icon,
   AlertCircleIcon,
   ChevronRightIcon,
-  SparklesIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -302,8 +301,9 @@ function EmptyState({
 
   return (
     <div className="flex flex-col items-center gap-4 px-4 py-12 text-center">
-      <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-brand/15 to-accent text-brand shadow-sm ring-1 ring-brand/15">
-        <SparklesIcon className="size-5" />
+      <div className="relative flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-brand to-brand/65 text-brand-foreground shadow-md shadow-brand/25 ring-1 ring-brand/30">
+        <span className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-b from-white/25 to-transparent" />
+        <BookOpenIcon className="size-6" />
       </div>
       <p className="font-heading text-base font-semibold tracking-tight">
         How can I help you cook?

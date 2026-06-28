@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { quantityLabel } from "@/lib/format";
 
 /**
  * The normalized shape the card renders. It deliberately makes every field
@@ -36,27 +37,6 @@ export interface RecipeView {
 }
 
 export type RecipeCardStatus = "streaming" | "draft" | "saving" | "saved";
-
-function quantityLabel(q?: number, unit?: string) {
-  if (q === undefined) return "";
-  // Render fractions a cook expects: 0.5 -> 1/2, 1.5 -> 1 1/2.
-  const whole = Math.floor(q);
-  const frac = q - whole;
-  const fracMap: Record<string, string> = {
-    "0.25": "1/4",
-    "0.5": "1/2",
-    "0.75": "3/4",
-    "0.33": "1/3",
-    "0.67": "2/3",
-  };
-  const key = frac.toFixed(2);
-  let amount: string;
-  if (frac === 0) amount = `${whole}`;
-  else if (fracMap[key]) amount = whole ? `${whole} ${fracMap[key]}` : fracMap[key];
-  else amount = `${q}`;
-  const u = unit && unit !== "count" ? ` ${unit}` : "";
-  return `${amount}${u}`.trim();
-}
 
 export function RecipeCard({
   recipe,
