@@ -11,15 +11,31 @@ interface ChatRequestBody {
   messages: UIMessage[];
   /** Soft mode pointer sent by the client transport. Biases the agent. */
   mode?: AgentMode;
-  /** Threaded for later menu/plan chunks; unused in ACT 1. */
+  /** The chef's active menu, so the agent reuses it across planning turns. */
   menuId?: string | null;
+  /** Authoritative plan selections sent when the chef hits "Generate plan". */
+  planServings?: number | null;
+  planUnitSystem?: "metric" | "imperial" | null;
+  planTechniqueIds?: string[] | null;
 }
 
 export async function POST(req: Request) {
-  const { messages, mode = "ingest", menuId = null } =
-    (await req.json()) as ChatRequestBody;
+  const {
+    messages,
+    mode = "ingest",
+    menuId = null,
+    planServings = null,
+    planUnitSystem = null,
+    planTechniqueIds = null,
+  } = (await req.json()) as ChatRequestBody;
 
-  const agent = buildRecipeAgent({ mode, menuId });
+  const agent = buildRecipeAgent({
+    mode,
+    menuId,
+    planServings,
+    planUnitSystem,
+    planTechniqueIds,
+  });
 
   // Wires the ToolLoopAgent to a UI message stream: it converts the incoming
   // UI messages, runs the tool loop, and streams assistant text + tool parts

@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { quantityLabel } from "@/lib/format";
+import { measureLabel } from "@/lib/format";
 
 /**
  * The normalized shape the card renders. It deliberately makes every field
@@ -142,7 +142,7 @@ export function RecipeCard({
                   )}
                 >
                   <span className="min-w-16 shrink-0 font-medium tabular-nums">
-                    {quantityLabel(ing.quantity, ing.unit)}
+                    {measureLabel(ing.quantity, ing.unit)}
                   </span>
                   <span>
                     {ing.name ?? "…"}

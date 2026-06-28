@@ -63,17 +63,41 @@ export interface RecipeAgentContext {
   mode: AgentMode;
   /** The menu the chef is currently planning, threaded from the client body. */
   menuId?: string | null;
+  /** Authoritative plan selections from the chef's UI controls (when they hit
+   * "Generate plan"), so build_menu_plan uses the EXACT values they chose. */
+  planServings?: number | null;
+  planUnitSystem?: "metric" | "imperial" | null;
+  planTechniqueIds?: string[] | null;
 }
 
 /** Construct a RecipeAgent whose instructions are biased by the current mode. */
-export function buildRecipeAgent({ mode, menuId }: RecipeAgentContext) {
+export function buildRecipeAgent({
+  mode,
+  menuId,
+  planServings,
+  planUnitSystem,
+  planTechniqueIds,
+}: RecipeAgentContext) {
   // Surface the active menu so the agent reuses it instead of re-creating one.
   const menuContext = menuId
     ? `\n\nACTIVE MENU: the chef is currently planning menu id "${menuId}". Use this menuId for add_recipe_to_menu / set_menu_servings / build_menu_plan unless they clearly start a new menu.`
     : "";
+
+  // When the chef hit "Generate plan" in the UI, these are their EXACT controls.
+  // The selections are authoritative — pass them to build_menu_plan verbatim and
+  // do not substitute or add techniques they didn't choose (the guardrail).
+  const planContext =
+    planServings != null || planUnitSystem != null || planTechniqueIds != null
+      ? `\n\nPLAN SELECTIONS (authoritative — the chef set these in the UI). When you call build_menu_plan for the active menu, pass EXACTLY: servings=${planServings ?? "null"}, unitSystem=${planUnitSystem ?? "null"}, appliedTechniqueIds=${JSON.stringify(planTechniqueIds ?? [])}. Do NOT add, drop, or substitute any technique id; an empty array means apply NONE.`
+      : "";
+
   return new ToolLoopAgent({
     model: chatModel,
-    instructions: BASE_INSTRUCTIONS + (MODE_BIAS[mode] ?? MODE_BIAS.ingest) + menuContext,
+    instructions:
+      BASE_INSTRUCTIONS +
+      (MODE_BIAS[mode] ?? MODE_BIAS.ingest) +
+      menuContext +
+      planContext,
     tools: recipeAgentTools,
     // Bound the loop: create menu -> add recipes -> sides -> plan stays under this.
     stopWhen: stepCountIs(12),

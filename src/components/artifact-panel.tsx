@@ -19,16 +19,23 @@ import { TechniqueCard, type TechniqueView } from "@/components/technique-card";
 import { LibraryGrid } from "@/components/library-grid";
 import { SearchGrid } from "@/components/search-grid";
 import { RecipeDetail } from "@/components/recipe-detail";
+import { MenuWorkspace } from "@/components/menu-workspace";
+import { SideDishPicker } from "@/components/side-dish-picker";
+import { MenuPlanView } from "@/components/menu-plan-view";
+import { latestMenuId } from "@/lib/menu-derive";
+import type { PlanControls } from "@/lib/act3";
 import type {
   CandidateRecipe,
   CandidateTechnique,
   ExtractEvent,
   PartialCandidate,
   PartialTechniqueCandidate,
+  PlanEvent,
   SaveRecipeResult,
   SaveTechniqueResult,
   SearchEvent,
   SearchResultItem,
+  SideDishEvent,
   TechniqueExtractEvent,
 } from "@/lib/artifact-types";
 
@@ -43,7 +50,7 @@ type ToolPart = {
   type: string;
   state?: string;
   preliminary?: boolean;
-  input?: { queryText?: string };
+  input?: { queryText?: string; menuId?: string };
   output?: unknown;
 };
 
@@ -69,7 +76,11 @@ type DerivedArtifact =
       candidates: Array<CandidateTechnique | PartialTechniqueCandidate>;
       savedByTitle: Map<string, string>;
     }
-  | { kind: "search"; query: string; results: SearchResultItem[]; pending: boolean };
+  | { kind: "search"; query: string; results: SearchResultItem[]; pending: boolean }
+  // ACT 3 — the most recent menu/side/plan action the agent took.
+  | { kind: "menu"; menuId: string }
+  | { kind: "sides"; menuId: string | null; event: SideDishEvent }
+  | { kind: "plan"; menuId: string; event: PlanEvent };
 
 /**
  * One pass over the messages builds the recipe, technique, and search states in
@@ -89,7 +100,19 @@ function deriveArtifact(messages: UIMessage[]): DerivedArtifact {
   let search: { query: string; results: SearchResultItem[]; pending: boolean } | null =
     null;
 
-  let last: "recipe" | "technique" | "search" | null = null;
+  // ACT 3 — menus, sides, plans.
+  let activeMenuId: string | null = null;
+  let sidesEvent: SideDishEvent | null = null;
+  let planEvent: PlanEvent | null = null;
+
+  let last:
+    | "recipe"
+    | "technique"
+    | "search"
+    | "menu"
+    | "sides"
+    | "plan"
+    | null = null;
 
   for (const m of messages) {
     for (const raw of m.parts) {
@@ -178,6 +201,47 @@ function deriveArtifact(messages: UIMessage[]): DerivedArtifact {
         const out = part.output as SaveTechniqueResult;
         if (out.savedTechniqueId) techSaved.set(norm(out.title), out.savedTechniqueId);
       }
+
+      // --- ACT 3 menu lifecycle: create / add / set / get all point at a menu ---
+      const done = part.state === "output-available" && part.output;
+      if (
+        part.type === "tool-create_menu" ||
+        part.type === "tool-add_recipe_to_menu" ||
+        part.type === "tool-set_menu_servings"
+      ) {
+        if (done) {
+          const out = part.output as { menuId?: string };
+          if (out.menuId) activeMenuId = out.menuId;
+          last = "menu";
+        }
+        continue;
+      }
+      if (part.type === "tool-get_menu") {
+        if (part.input?.menuId) activeMenuId = part.input.menuId;
+        if (done) {
+          const out = part.output as { id?: string };
+          if (out.id) activeMenuId = out.id;
+        }
+        last = "menu";
+        continue;
+      }
+
+      // --- side-dish suggestions ---
+      if (part.type === "tool-generate_side_dishes") {
+        last = "sides";
+        if (done) sidesEvent = part.output as SideDishEvent;
+        continue;
+      }
+
+      // --- built plan ---
+      if (part.type === "tool-build_menu_plan") {
+        last = "plan";
+        if (done) {
+          planEvent = part.output as PlanEvent;
+          if (planEvent.menuId) activeMenuId = planEvent.menuId;
+        }
+        continue;
+      }
     }
   }
 
@@ -199,6 +263,20 @@ function deriveArtifact(messages: UIMessage[]): DerivedArtifact {
   }
   if (last === "search" && search) {
     return { kind: "search", ...search };
+  }
+  if (last === "plan" && planEvent) {
+    return { kind: "plan", menuId: planEvent.menuId, event: planEvent };
+  }
+  if (last === "sides" && sidesEvent) {
+    return { kind: "sides", menuId: activeMenuId, event: sidesEvent };
+  }
+  // A menu-related action (or a plan/side build still in flight) keeps the menu
+  // workspace on the canvas rather than flashing back to the library grid.
+  if (
+    activeMenuId &&
+    (last === "menu" || last === "plan" || last === "sides")
+  ) {
+    return { kind: "menu", menuId: activeMenuId };
   }
   return { kind: "none" };
 }
@@ -234,19 +312,25 @@ function techniqueToView(
 type PanelView =
   | { kind: "follow" }
   | { kind: "grid" }
-  | { kind: "detail"; recipeId: string; back: PanelView };
+  | { kind: "detail"; recipeId: string; back: PanelView }
+  | { kind: "menu"; menuId: string; back: PanelView }
+  | { kind: "plan"; menuId: string; planId?: string; back: PanelView };
 
 export function ArtifactPanel({
   messages,
   status,
   reservedRight = 0,
+  controls,
 }: {
   messages: UIMessage[];
   status: UseChatHelpers<UIMessage>["status"];
   /** px to keep clear on the right so the floating chat never covers content */
   reservedRight?: number;
+  /** ACT 3 planning controls + agent actions, lifted to the shell. */
+  controls: PlanControls;
 }) {
   const artifact = React.useMemo(() => deriveArtifact(messages), [messages]);
+  const activeMenuId = React.useMemo(() => latestMenuId(messages), [messages]);
 
   // --- explicit navigation (clicking a card / Back / Library), no effects ---
   const [view, setView] = React.useState<PanelView>({ kind: "follow" });
@@ -297,6 +381,17 @@ export function ArtifactPanel({
     techSavedId ? { techniqueId: techSavedId as Id<"techniques"> } : "skip",
   );
 
+  // The active menu's recipe ids, so the side picker can show an added side as
+  // "on the menu" reactively (subscribed; skipped until a menu exists).
+  const activeMenu = useQuery(
+    api.menus.getMenu,
+    activeMenuId ? { menuId: activeMenuId as Id<"menus"> } : "skip",
+  );
+  const onMenuIds = React.useMemo(
+    () => new Set((activeMenu?.recipes ?? []).map((r) => r._id as string)),
+    [activeMenu],
+  );
+
   const openDetail = React.useCallback(
     (recipeId: string, back: PanelView) =>
       navigate({ kind: "detail", recipeId, back }),
@@ -329,6 +424,34 @@ export function ArtifactPanel({
     );
   }
 
+  // 2b) Explicit menu / plan navigation (e.g. "Back to menu", "View plan v2").
+  if (activeView.kind === "menu") {
+    return scrolled(
+      <MenuWorkspace
+        menuId={activeView.menuId}
+        controls={controls}
+        onOpenRecipe={(id) => openDetail(id, activeView)}
+        onViewPlan={() =>
+          navigate({ kind: "plan", menuId: activeView.menuId, back: activeView })
+        }
+      />,
+    );
+  }
+  if (activeView.kind === "plan") {
+    return scrolled(
+      <MenuPlanView
+        menuId={activeView.menuId}
+        planId={activeView.planId}
+        conflicts={artifact.kind === "plan" ? artifact.event.conflicts : []}
+        controls={controls}
+        onBack={() => navigate(activeView.back)}
+        onViewVersion={(planId) =>
+          navigate({ ...activeView, planId })
+        }
+      />,
+    );
+  }
+
   // 3) Follow the conversation — search results grid.
   if (artifact.kind === "search") {
     return scrolled(
@@ -341,6 +464,60 @@ export function ArtifactPanel({
           onOpen={(id) => openDetail(id, { kind: "follow" })}
         />
       ),
+    );
+  }
+
+  // 3a-ii) Follow the conversation — ACT 3 plan, side picker, and menu.
+  if (artifact.kind === "plan") {
+    return scrolled(
+      <MenuPlanView
+        menuId={artifact.menuId}
+        conflicts={artifact.event.conflicts}
+        controls={controls}
+        onBack={() =>
+          navigate({ kind: "menu", menuId: artifact.menuId, back: { kind: "follow" } })
+        }
+        onViewVersion={(planId) =>
+          navigate({
+            kind: "plan",
+            menuId: artifact.menuId,
+            planId,
+            back: { kind: "follow" },
+          })
+        }
+      />,
+    );
+  }
+  if (artifact.kind === "sides") {
+    return scrolled(
+      <SideDishPicker
+        event={artifact.event}
+        controls={controls}
+        alreadyOnMenu={onMenuIds}
+        onOpen={(id) => openDetail(id, { kind: "follow" })}
+        onBackToMenu={
+          artifact.menuId
+            ? () =>
+                navigate({
+                  kind: "menu",
+                  menuId: artifact.menuId as string,
+                  back: { kind: "follow" },
+                })
+            : null
+        }
+      />,
+    );
+  }
+  if (artifact.kind === "menu") {
+    return scrolled(
+      <MenuWorkspace
+        menuId={artifact.menuId}
+        controls={controls}
+        onOpenRecipe={(id) => openDetail(id, { kind: "follow" })}
+        onViewPlan={() =>
+          navigate({ kind: "plan", menuId: artifact.menuId, back: { kind: "follow" } })
+        }
+      />,
     );
   }
 

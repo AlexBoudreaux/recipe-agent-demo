@@ -13,6 +13,10 @@ import {
   CheckCircle2Icon,
   AlertCircleIcon,
   ChevronRightIcon,
+  SparklesIcon,
+  ChefHatIcon,
+  ListChecksIcon,
+  UtensilsCrossedIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,10 +89,65 @@ function ToolStatus({ part }: { part: ToolPartView }) {
     );
   }
 
-  if (part.type === "tool-find_recipes" || part.type === "tool-get_recipe") {
+  if (
+    part.type === "tool-find_recipes" ||
+    part.type === "tool-get_recipe" ||
+    part.type === "tool-search_recipes"
+  ) {
     return (
       <Chip icon={<SearchIcon className="size-3" />}>
         {done ? "Searched your library" : "Searching your library…"}
+      </Chip>
+    );
+  }
+
+  // --- Techniques ---
+  if (part.type === "tool-fetch_and_extract_technique") {
+    return (
+      <Chip icon={done ? <SparklesIcon className="size-3" /> : <LoaderIcon className="size-3 animate-spin" />}>
+        {done ? "Extracted technique" : "Reading the source…"}
+      </Chip>
+    );
+  }
+  if (part.type === "tool-save_technique") {
+    return done ? (
+      <Chip icon={<CheckCircle2Icon className="size-3" />} tone="ok">
+        Saved &amp; attached to recipes
+      </Chip>
+    ) : (
+      <Chip icon={<LoaderIcon className="size-3 animate-spin" />}>Saving…</Chip>
+    );
+  }
+
+  // --- ACT 3: menus, sides, plans ---
+  if (
+    part.type === "tool-create_menu" ||
+    part.type === "tool-add_recipe_to_menu" ||
+    part.type === "tool-set_menu_servings"
+  ) {
+    return (
+      <Chip icon={<ChefHatIcon className="size-3" />}>
+        {part.type === "tool-create_menu"
+          ? done
+            ? "Started a menu"
+            : "Starting a menu…"
+          : done
+            ? "Updated the menu"
+            : "Updating the menu…"}
+      </Chip>
+    );
+  }
+  if (part.type === "tool-generate_side_dishes") {
+    return (
+      <Chip icon={done ? <UtensilsCrossedIcon className="size-3" /> : <LoaderIcon className="size-3 animate-spin" />}>
+        {done ? "Found side dishes" : "Finding sides…"}
+      </Chip>
+    );
+  }
+  if (part.type === "tool-build_menu_plan") {
+    return (
+      <Chip icon={done ? <ListChecksIcon className="size-3" /> : <LoaderIcon className="size-3 animate-spin" />} tone={done ? "ok" : "muted"}>
+        {done ? "Built your plan" : "Building the plan…"}
       </Chip>
     );
   }

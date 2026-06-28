@@ -8,6 +8,8 @@ import { AppHeader } from "@/components/app-header";
 import { ChatPanel } from "@/components/chat-panel";
 import { ArtifactPanel } from "@/components/artifact-panel";
 import { type AgentMode } from "@/lib/agent-mode";
+import { latestMenuId } from "@/lib/menu-derive";
+import type { PlanControls, UnitSystem } from "@/lib/act3";
 
 const MIN_CHAT_WIDTH = 340;
 const MAX_CHAT_WIDTH = 640;
@@ -29,9 +31,6 @@ export function DashboardShell() {
     setChatWidthState(w);
   }, []);
 
-  // Threaded for later menu/plan chunks; null until menus land.
-  const menuId: string | null = null;
-
   // One stable transport, built once. Its request-prep hook just forwards the
   // per-send `body` (which carries the live mode/menuId) alongside the messages —
   // no refs, no render-time state reads, so a mode change never tears down
@@ -52,8 +51,15 @@ export function DashboardShell() {
 
   const chat = useChat({ transport });
 
-  // Inject the live mode (soft bias) into each send's body. `mode` is plain
-  // state, so the agent always sees the current toggle without any ref plumbing.
+  // The active menu is whatever the agent last touched (derived from the tool
+  // transcript), so it's threaded back into the body and the agent reuses it
+  // instead of creating a new menu on every planning turn.
+  const menuId = React.useMemo(
+    () => latestMenuId(chat.messages),
+    [chat.messages],
+  );
+
+  // Inject the live mode (soft bias) + active menuId into each send's body.
   const sendMessage = React.useCallback<typeof chat.sendMessage>(
     (message, options) =>
       chat.sendMessage(message, {
@@ -62,6 +68,70 @@ export function DashboardShell() {
       }),
     [chat, mode, menuId],
   );
+
+  // --- ACT 3 planning controls, lifted here so they survive the
+  // generate -> plan -> back-to-menu round trip (a conflict can only be resolved
+  // if the chef's technique toggles are still set when they return to the menu).
+  const [servings, setServings] = React.useState<number | null>(null);
+  const [unitSystem, setUnitSystem] = React.useState<UnitSystem>("imperial");
+  const [selectedTechniqueIds, setSelectedTechniqueIds] = React.useState<
+    string[]
+  >([]);
+  const toggleTechnique = React.useCallback((id: string) => {
+    setSelectedTechniqueIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }, []);
+
+  const busy = chat.status === "submitted" || chat.status === "streaming";
+
+  // The action buttons ask the AGENT to run the tool (single-agent architecture):
+  // a precise instruction in chat + authoritative selection values in the body
+  // the agent must pass to build_menu_plan verbatim.
+  const generatePlan = React.useCallback(
+    (planServings: number) => {
+      if (busy) return;
+      const ids = selectedTechniqueIds;
+      const text =
+        `Generate the menu plan: ${planServings} servings, ${unitSystem} units, ` +
+        (ids.length
+          ? `apply ONLY these technique ids and no others: ${ids.join(", ")}.`
+          : "apply no techniques.");
+      sendMessage(
+        { text },
+        {
+          body: {
+            planServings,
+            planUnitSystem: unitSystem,
+            planTechniqueIds: ids,
+          },
+        },
+      );
+    },
+    [busy, selectedTechniqueIds, unitSystem, sendMessage],
+  );
+
+  const addRecipe = React.useCallback(
+    (recipeId: string, title: string) => {
+      if (busy) return;
+      sendMessage({
+        text: `Add the side "${title}" (recipe id ${recipeId}) to my menu.`,
+      });
+    },
+    [busy, sendMessage],
+  );
+
+  const controls: PlanControls = {
+    servings,
+    setServings,
+    unitSystem,
+    setUnitSystem,
+    selectedTechniqueIds,
+    toggleTechnique,
+    busy,
+    generatePlan,
+    addRecipe,
+  };
 
   // Drag-to-resize the dock from its left edge. Dragging left widens it. The
   // move/end handlers are stored in refs so the start handler can wire and
@@ -100,6 +170,7 @@ export function DashboardShell() {
           messages={chat.messages}
           status={chat.status}
           reservedRight={chatOpen ? chatWidth + DOCK_GAP : 0}
+          controls={controls}
         />
 
         {chatOpen ? (

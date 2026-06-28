@@ -27,3 +27,16 @@ export function quantityLabel(q?: number, unit?: string): string {
   const u = unit && unit !== "count" ? ` ${unit}` : "";
   return `${amount}${u}`.trim();
 }
+
+/**
+ * Like {@link quantityLabel} but built for ingredient/shopping lines that may
+ * carry an EMPTY-STRING unit (e.g. a brine's added "salt"/"sugar"). A truly
+ * unitless line has no meaningful number to show, so we render NOTHING for the
+ * amount and let the name stand alone — never a dangling "2 " with no unit, and
+ * never a stray "0". A "count" unit (e.g. 2 eggs) keeps its bare number, since
+ * that count IS the meaningful amount.
+ */
+export function measureLabel(q?: number, unit?: string): string {
+  if ((unit ?? "").trim() === "") return "";
+  return quantityLabel(q, unit);
+}

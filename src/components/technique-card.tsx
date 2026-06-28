@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import { quantityLabel } from "@/lib/format";
+import { measureLabel } from "@/lib/format";
 
 /**
  * The normalized shape the technique card renders. Like RecipeView, every field
@@ -158,7 +158,7 @@ export function TechniqueCard({
                   <li key={i} className="flex items-baseline gap-2 text-sm">
                     <PlusIcon className="size-3 shrink-0 translate-y-0.5 text-brand/60" />
                     <span className="min-w-16 shrink-0 font-medium tabular-nums">
-                      {quantityLabel(ing.quantity, ing.unit)}
+                      {measureLabel(ing.quantity, ing.unit)}
                     </span>
                     <span>{ing.name ?? "…"}</span>
                   </li>
