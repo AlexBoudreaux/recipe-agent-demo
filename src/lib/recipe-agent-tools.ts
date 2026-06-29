@@ -261,6 +261,7 @@ const findRecipes = tool({
       category: r.category,
       summary: r.summary,
       tags: r.tags,
+      imageUrl: r.imageUrl,
     }));
   },
 });

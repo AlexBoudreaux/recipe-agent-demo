@@ -50,9 +50,31 @@ type ToolPart = {
   type: string;
   state?: string;
   preliminary?: boolean;
-  input?: { queryText?: string; menuId?: string };
+  input?: {
+    queryText?: string;
+    menuId?: string;
+    category?: string | null;
+    tags?: string[] | null;
+  };
   output?: unknown;
 };
+
+/** A slim row from the find_recipes tool (tag/category lookup). */
+type FindRecipeRow = {
+  id: string;
+  title: string;
+  category: SearchResultItem["category"];
+  summary: string;
+  tags: string[];
+  imageUrl: string | null;
+};
+
+/** Human label for a find_recipes lookup so the grid header reads naturally. */
+function findQueryLabel(input?: ToolPart["input"]): string {
+  if (input?.tags && input.tags.length) return input.tags.join(", ");
+  if (input?.category) return `${input.category} dishes`;
+  return "your library";
+}
 
 type Phase = "fetching" | "extracting" | "ready";
 
@@ -178,6 +200,36 @@ function deriveArtifact(messages: UIMessage[]): DerivedArtifact {
         if (part.state === "output-available" && part.output) {
           const ev = part.output as SearchEvent;
           search = { query: ev.query, results: ev.results, pending: false };
+        }
+        continue;
+      }
+
+      // --- find_recipes: a tag/category lookup. The agent picks this over
+      // search_recipes for plain finds ("recipes with shrimp"), especially in
+      // ingest mode, so it must populate the SAME grid (modes are soft). ---
+      if (part.type === "tool-find_recipes") {
+        last = "search";
+        if (part.state === "input-streaming" || part.state === "input-available") {
+          search = { query: findQueryLabel(part.input), results: [], pending: true };
+          continue;
+        }
+        if (part.state === "output-available" && part.output) {
+          const rows = part.output as FindRecipeRow[];
+          search = {
+            query: findQueryLabel(part.input),
+            results: rows.map((r) => ({
+              id: r.id,
+              title: r.title,
+              category: r.category,
+              summary: r.summary,
+              tags: r.tags,
+              imageUrl: r.imageUrl ?? null,
+              score: 0,
+              meaningScore: 0,
+              sharedTags: [],
+            })),
+            pending: false,
+          };
         }
         continue;
       }
@@ -398,7 +450,10 @@ export function ArtifactPanel({
     [navigate],
   );
 
-  const padRight = reservedRight ? reservedRight + 24 : undefined;
+  // Match the grid's left breathing room (px-6 = 24px) on the right: reserve
+  // exactly the chat's footprint (width + DOCK_GAP) so the gap to the dock equals
+  // the left margin rather than doubling it.
+  const padRight = reservedRight || undefined;
   const scrolled = (node: React.ReactNode) => (
     <div className={CANVAS_BG}>
       <ScrollArea className="h-full">
@@ -406,6 +461,26 @@ export function ArtifactPanel({
       </ScrollArea>
     </div>
   );
+
+  // Like scrolled(), but for views with their OWN sticky header (the library).
+  // Radix wraps the viewport content in a `display:table` div, which breaks
+  // `position: sticky`; force that wrapper back to block so the header pins. The
+  // view itself owns the right gutter (padRight) so its sticky bar respects it.
+  const scrolledSticky = (node: React.ReactNode) => (
+    <div className={CANVAS_BG}>
+      <ScrollArea className="h-full [&_[data-slot=scroll-area-viewport]>*]:!block">
+        {node}
+      </ScrollArea>
+    </div>
+  );
+  const library = (back: PanelView) =>
+    scrolledSticky(
+      <LibraryGrid
+        padRight={padRight}
+        onOpen={(id) => openDetail(id, back)}
+        onOpenMenu={(id) => navigate({ kind: "menu", menuId: id, back })}
+      />,
+    );
 
   // 1) Explicit detail override.
   if (activeView.kind === "detail") {
@@ -419,9 +494,7 @@ export function ArtifactPanel({
 
   // 2) Explicit "browse library" override.
   if (activeView.kind === "grid") {
-    return scrolled(
-      <LibraryGrid onOpen={(id) => openDetail(id, { kind: "grid" })} />,
-    );
+    return library({ kind: "grid" });
   }
 
   // 2b) Explicit menu / plan navigation (e.g. "Back to menu", "View plan v2").
@@ -566,10 +639,11 @@ export function ArtifactPanel({
         </button>
 
         <ScrollArea className="h-full">
-          <div
-            className="mx-auto flex max-w-2xl flex-col gap-4 px-6 py-8"
-            style={{ paddingRight: padRight }}
-          >
+          {/* Plain block wrapper first (fills the radix viewport's table-sized
+              content box), THEN the centered column — mirrors scrolled() so the
+              card is the same width as the library detail view. */}
+          <div style={{ paddingRight: padRight }}>
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-6 py-8">
             {/* Multi-candidate chooser, mirrors the agent's chat question. */}
             {candidates.length > 1 && (
               <div className="flex flex-wrap gap-2">
@@ -642,15 +716,14 @@ export function ArtifactPanel({
               </p>
             )}
           </div>
+          </div>
         </ScrollArea>
       </div>
     );
   }
 
   // 4) Default: the live library grid (PRD story 46).
-  return scrolled(
-    <LibraryGrid onOpen={(id) => openDetail(id, { kind: "follow" })} />,
-  );
+  return library({ kind: "follow" });
 }
 
 function SearchPending({ query }: { query: string }) {

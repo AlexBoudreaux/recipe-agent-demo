@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { UtensilsCrossedIcon } from "lucide-react";
+import { Trash2Icon, UtensilsCrossedIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -25,19 +25,37 @@ export function RecipeGridCard({
   onOpen,
   /** Optional "why it matched" chips shown under the title (search results). */
   matchedTags,
+  /** When provided, a trash button appears on hover to delete this recipe. */
+  onDelete,
 }: {
   recipe: RecipeGridItem;
   onOpen: (id: string) => void;
   matchedTags?: string[];
+  onDelete?: (id: string) => void;
 }) {
   const tags = (recipe.tags ?? []).slice(0, 3);
 
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(recipe.id)}
-      className="group flex flex-col overflow-hidden rounded-xl border bg-card text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-    >
+    <div className="group relative flex flex-col overflow-hidden rounded-xl border bg-card text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md focus-within:ring-2 focus-within:ring-ring/50">
+      <button
+        type="button"
+        onClick={() => onOpen(recipe.id)}
+        aria-label={`Open ${recipe.title}`}
+        className="absolute inset-0 z-0 focus-visible:outline-none"
+      />
+      {onDelete && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(recipe.id);
+          }}
+          aria-label={`Delete ${recipe.title}`}
+          className="absolute right-2.5 top-2.5 z-10 flex size-7 items-center justify-center rounded-md bg-card/85 text-muted-foreground opacity-0 shadow-sm ring-1 ring-border/60 backdrop-blur transition-all hover:bg-destructive hover:text-white focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive group-hover:opacity-100"
+        >
+          <Trash2Icon className="size-3.5" />
+        </button>
+      )}
       {/* Cover */}
       <div className="relative aspect-[16/9] w-full overflow-hidden bg-muted">
         {recipe.imageUrl ? (
@@ -91,6 +109,6 @@ export function RecipeGridCard({
           </div>
         )}
       </div>
-    </button>
+    </div>
   );
 }

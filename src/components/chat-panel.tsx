@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { ModeSwitch } from "@/components/mode-switch";
 import { type AgentMode } from "@/lib/agent-mode";
 import type { ExtractEvent } from "@/lib/artifact-types";
+import { Markdown } from "@/components/markdown";
 
 function messageText(parts: UIMessage["parts"]) {
   return parts
@@ -274,13 +275,13 @@ export function ChatPanel({
                     {text && (
                       <div
                         className={cn(
-                          "max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm shadow-sm",
+                          "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm shadow-sm",
                           m.role === "user"
-                            ? "rounded-br-md bg-brand text-brand-foreground"
+                            ? "whitespace-pre-wrap rounded-br-md bg-brand text-brand-foreground"
                             : "rounded-bl-md bg-muted text-foreground ring-1 ring-border/60",
                         )}
                       >
-                        {text}
+                        {m.role === "user" ? text : <Markdown>{text}</Markdown>}
                       </div>
                     )}
                     {m.role === "assistant" &&
