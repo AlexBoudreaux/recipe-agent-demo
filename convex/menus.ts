@@ -70,13 +70,48 @@ export const getMenu = query({
   },
 });
 
+// Delete a menu and CASCADE its versioned plan snapshots. Destructive: this is
+// only ever reached from an explicit, confirmed UI action (no agent tool).
+export const deleteMenu = mutation({
+  args: { menuId: v.id("menus") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const plans = await ctx.db
+      .query("menuPlans")
+      .withIndex("by_menu", (q) => q.eq("menuId", args.menuId))
+      .collect();
+    for (const plan of plans) {
+      await ctx.db.delete(plan._id);
+    }
+    await ctx.db.delete(args.menuId);
+    return null;
+  },
+});
+
+// Menus list with a composed cover: the resolved storage URLs of up to the
+// first 4 recipes (in menu/course order) that actually have an image, so the
+// library can collage a cover photo out of the dishes on the menu.
 export const listMenus = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db
+    const menus = await ctx.db
       .query("menus")
       .withIndex("by_createdAt")
       .order("desc")
       .collect();
+
+    return await Promise.all(
+      menus.map(async (menu) => {
+        const coverImageUrls: string[] = [];
+        for (const id of menu.recipeRefs) {
+          if (coverImageUrls.length >= 4) break;
+          const recipe = await ctx.db.get(id);
+          if (!recipe?.imageId) continue;
+          const url = await ctx.storage.getUrl(recipe.imageId);
+          if (url) coverImageUrls.push(url);
+        }
+        return { ...menu, coverImageUrls };
+      }),
+    );
   },
 });

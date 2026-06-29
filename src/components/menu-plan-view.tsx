@@ -11,7 +11,10 @@ import {
   UsersIcon,
   ScaleIcon,
   HistoryIcon,
+  CopyIcon,
+  SmartphoneIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -194,9 +197,15 @@ export function MenuPlanView({
 
           {/* Consolidated ingredients */}
           <section className="flex flex-col gap-2">
-            <h3 className="text-sm font-semibold tracking-tight">
-              Consolidated ingredients
-            </h3>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold tracking-tight">
+                Consolidated ingredients
+              </h3>
+              <ListActions
+                label="Ingredient list"
+                text={ingredientsText(plan)}
+              />
+            </div>
             <p className="text-xs text-muted-foreground">
               Every recipe scaled to {plan.servings} servings and merged, so the
               same ingredient is summed once.
@@ -205,7 +214,7 @@ export function MenuPlanView({
               {plan.consolidatedIngredients.map((ing, i) => (
                 <li key={i} className="flex items-baseline gap-2 text-sm">
                   <span className="min-w-20 shrink-0 font-medium tabular-nums">
-                    {measureLabel(ing.quantity, ing.unit)}
+                    {measureLabel(ing.quantity, ing.unit) || "—"}
                   </span>
                   <span className="capitalize">{ing.name}</span>
                 </li>
@@ -217,10 +226,13 @@ export function MenuPlanView({
 
           {/* Shopping list grouped by store area */}
           <section className="flex flex-col gap-3">
-            <h3 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-              <ShoppingCartIcon className="size-4 text-brand" />
-              Shopping list
-            </h3>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+                <ShoppingCartIcon className="size-4 text-brand" />
+                Shopping list
+              </h3>
+              <ListActions label="Shopping list" text={shoppingListText(plan)} />
+            </div>
             <p className="text-xs text-muted-foreground">
               Grouped by area of the store, so you shop in one pass.
             </p>
@@ -240,7 +252,7 @@ export function MenuPlanView({
                         className="flex items-baseline gap-2 text-sm"
                       >
                         <span className="min-w-20 shrink-0 font-medium tabular-nums text-muted-foreground">
-                          {measureLabel(item.quantity, item.unit)}
+                          {measureLabel(item.quantity, item.unit) || "—"}
                         </span>
                         <span className="capitalize">{item.name}</span>
                       </li>
@@ -252,6 +264,72 @@ export function MenuPlanView({
           </section>
         </>
       )}
+    </div>
+  );
+}
+
+/** One ingredient/shopping line as plain text ("1 cup flour"), no empty units. */
+function lineText(quantity: number | undefined, unit: string, name: string) {
+  return `- ${[measureLabel(quantity, unit), name].filter(Boolean).join(" ")}`;
+}
+
+/** The consolidated ingredient list as shareable plain text. */
+function ingredientsText(plan: Doc<"menuPlans">) {
+  return [
+    `Ingredients — serves ${plan.servings} (${plan.unitSystem})`,
+    ...plan.consolidatedIngredients.map((i) =>
+      lineText(i.quantity, i.unit, i.name),
+    ),
+  ].join("\n");
+}
+
+/** The store-grouped shopping list as shareable plain text. */
+function shoppingListText(plan: Doc<"menuPlans">) {
+  return [
+    `Shopping list — serves ${plan.servings} (${plan.unitSystem})`,
+    ...plan.shoppingList.map((group) =>
+      [
+        "",
+        group.area.toUpperCase(),
+        ...group.items.map((it) => lineText(it.quantity, it.unit, it.name)),
+      ].join("\n"),
+    ),
+  ].join("\n");
+}
+
+/**
+ * Copy-to-clipboard (real) + Send-to-phone (demo placeholder) for a plan list.
+ * "Send to phone" is intentionally a stub — it shows the art of the possible
+ * (a real build would text a link or push to a companion app) without wiring up
+ * SMS/push for the demo.
+ */
+function ListActions({ label, text }: { label: string; text: string }) {
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied to clipboard`);
+    } catch {
+      toast.error("Couldn't copy — your browser blocked clipboard access.");
+    }
+  };
+  const sendToPhone = () =>
+    toast.success(`${label} sent to your phone`, {
+      description: "Demo only — no message was actually sent.",
+    });
+
+  const btn =
+    "inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground";
+
+  return (
+    <div className="flex shrink-0 items-center gap-1.5">
+      <button type="button" onClick={copy} className={btn}>
+        <CopyIcon className="size-3.5" />
+        Copy
+      </button>
+      <button type="button" onClick={sendToPhone} className={btn}>
+        <SmartphoneIcon className="size-3.5" />
+        Send to phone
+      </button>
     </div>
   );
 }

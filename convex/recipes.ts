@@ -57,6 +57,41 @@ export const setRecipeImage = mutation({
   },
 });
 
+// Delete a recipe and everything that dangles off it: its stored cover image,
+// any technique associations pointing at it, and its slot in any menu's ordered
+// recipeRefs. Unlike admin.deleteRecipe (a blunt dev prune), this keeps the rest
+// of the working set consistent, so it's the one the library UI calls.
+export const deleteRecipe = mutation({
+  args: { recipeId: v.id("recipes") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const recipe = await ctx.db.get(args.recipeId);
+    if (!recipe) return null;
+
+    if (recipe.imageId) await ctx.storage.delete(recipe.imageId);
+
+    // Drop associations linking this recipe to techniques.
+    const links = await ctx.db
+      .query("associations")
+      .withIndex("by_recipe", (q) => q.eq("recipeId", args.recipeId))
+      .collect();
+    for (const link of links) await ctx.db.delete(link._id);
+
+    // Pull this recipe out of any menu that references it.
+    const menus = await ctx.db.query("menus").collect();
+    for (const menu of menus) {
+      if (menu.recipeRefs.includes(args.recipeId)) {
+        await ctx.db.patch(menu._id, {
+          recipeRefs: menu.recipeRefs.filter((id) => id !== args.recipeId),
+        });
+      }
+    }
+
+    await ctx.db.delete(args.recipeId);
+    return null;
+  },
+});
+
 // Single recipe by id, with a served image URL resolved for convenience.
 export const getRecipe = query({
   args: { recipeId: v.id("recipes") },
@@ -150,6 +185,13 @@ export const findRecipes = query({
         ? rows.filter((r) => r.tags.some((t) => tags.includes(t)))
         : rows;
 
-    return filtered.slice(0, limit);
+    // Resolve cover image urls (additive) so a chat-driven find can render the
+    // same grid cards the search/library views use.
+    return Promise.all(
+      filtered.slice(0, limit).map(async (r) => ({
+        ...r,
+        imageUrl: r.imageId ? await ctx.storage.getUrl(r.imageId) : null,
+      })),
+    );
   },
 });
