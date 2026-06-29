@@ -591,6 +591,28 @@ const getMenu = tool({
   },
 });
 
+const listMenus = tool({
+  description:
+    "List the chef's existing menus (most recent first), each with its id, name, " +
+    "and recipe count. Call this FIRST whenever the chef refers to a menu they " +
+    "already have ('my shrimp menu', 'the dinner menu', 'add it to the menu') so " +
+    "you can find its id by name instead of asking them or creating a duplicate. " +
+    "Only fall back to create_menu when no existing menu matches.",
+  inputSchema: z.object({}),
+  async execute() {
+    const convex = convexClient();
+    const menus = await convex.query(api.menus.listMenus, {});
+    return {
+      menus: menus.map((m) => ({
+        id: m._id as string,
+        name: m.name,
+        recipeCount: m.recipeRefs.length,
+        targetServings: m.targetServings ?? null,
+      })),
+    };
+  },
+});
+
 // ---------------------------------------------------------------------------
 // generate_side_dishes — deterministic filter + LLM rank of THREE library sides.
 // ---------------------------------------------------------------------------
@@ -712,6 +734,7 @@ export const recipeAgentTools = {
   add_recipe_to_menu: addRecipeToMenu,
   set_menu_servings: setMenuServings,
   get_menu: getMenu,
+  list_menus: listMenus,
   generate_side_dishes: generateSideDishes,
   build_menu_plan: buildMenuPlanTool,
 };

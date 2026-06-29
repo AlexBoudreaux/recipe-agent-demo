@@ -52,11 +52,37 @@ export function DashboardShell() {
   const chat = useChat({ transport });
 
   // The active menu is whatever the agent last touched (derived from the tool
-  // transcript), so it's threaded back into the body and the agent reuses it
-  // instead of creating a new menu on every planning turn.
-  const menuId = React.useMemo(
+  // transcript) UNLESS the chef explicitly picked one in the header switcher.
+  // The manual pick (override) wins until the agent touches a different menu, at
+  // which point we drop the override and follow the agent again — so a freshly
+  // created/added menu always becomes active without fighting the switcher.
+  const derivedMenuId = React.useMemo(
     () => latestMenuId(chat.messages),
     [chat.messages],
+  );
+  const [menuOverride, setMenuOverride] = React.useState<string | null>(null);
+  const [seenDerived, setSeenDerived] = React.useState(derivedMenuId);
+  if (derivedMenuId !== seenDerived) {
+    setSeenDerived(derivedMenuId);
+    setMenuOverride(null);
+  }
+  const menuId = menuOverride ?? derivedMenuId;
+
+  // Bumped whenever the chef picks a menu in the header, so the artifact panel
+  // jumps to that menu's workspace (it otherwise only follows the transcript).
+  const [menuNonce, setMenuNonce] = React.useState(0);
+  const selectMenu = React.useCallback((id: string) => {
+    setMenuOverride(id);
+    setMenuNonce((n) => n + 1);
+  }, []);
+
+  // When the active menu is deleted, drop the override so the panel stops
+  // forcing a now-missing menu and falls back to whatever the transcript derives.
+  const handleMenuDeleted = React.useCallback(
+    (deletedId: string) => {
+      if (deletedId === menuId) setMenuOverride(null);
+    },
+    [menuId],
   );
 
   // Inject the live mode (soft bias) + active menuId into each send's body.
@@ -68,6 +94,13 @@ export function DashboardShell() {
       }),
     [chat, mode, menuId],
   );
+
+  // "New menu" stays conversational (single-agent architecture): the agent owns
+  // creation + naming, so we just ask it to start one.
+  const newMenu = React.useCallback(() => {
+    if (chat.status === "submitted" || chat.status === "streaming") return;
+    sendMessage({ text: "Start a new, empty menu." });
+  }, [chat.status, sendMessage]);
 
   // --- ACT 3 planning controls, lifted here so they survive the
   // generate -> plan -> back-to-menu round trip (a conflict can only be resolved
@@ -164,13 +197,20 @@ export function DashboardShell() {
   // so reserve just enough room that streaming recipes never hide under it.
   return (
     <div className="flex h-screen min-h-0 flex-col bg-background">
-      <AppHeader />
+      <AppHeader
+        activeMenuId={menuId}
+        onSelectMenu={selectMenu}
+        onNewMenu={newMenu}
+        onMenuDeleted={handleMenuDeleted}
+      />
       <main className="relative min-h-0 flex-1 overflow-hidden">
         <ArtifactPanel
           messages={chat.messages}
           status={chat.status}
           reservedRight={chatOpen ? chatWidth + DOCK_GAP : 0}
           controls={controls}
+          activeMenuId={menuId}
+          openMenuNonce={menuNonce}
         />
 
         {chatOpen ? (

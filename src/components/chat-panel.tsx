@@ -138,6 +138,13 @@ function ToolStatus({ part }: { part: ToolPartView }) {
       </Chip>
     );
   }
+  if (part.type === "tool-list_menus") {
+    return (
+      <Chip icon={done ? <ChefHatIcon className="size-3" /> : <LoaderIcon className="size-3 animate-spin" />}>
+        {done ? "Checked your menus" : "Checking your menus…"}
+      </Chip>
+    );
+  }
   if (part.type === "tool-generate_side_dishes") {
     return (
       <Chip icon={done ? <UtensilsCrossedIcon className="size-3" /> : <LoaderIcon className="size-3 animate-spin" />}>

@@ -373,6 +373,8 @@ export function ArtifactPanel({
   status,
   reservedRight = 0,
   controls,
+  activeMenuId: activeMenuIdProp,
+  openMenuNonce = 0,
 }: {
   messages: UIMessage[];
   status: UseChatHelpers<UIMessage>["status"];
@@ -380,9 +382,14 @@ export function ArtifactPanel({
   reservedRight?: number;
   /** ACT 3 planning controls + agent actions, lifted to the shell. */
   controls: PlanControls;
+  /** The effective active menu id (header pick OR transcript-derived). */
+  activeMenuId?: string | null;
+  /** Bumped when the chef picks a menu in the header, so we jump to it. */
+  openMenuNonce?: number;
 }) {
   const artifact = React.useMemo(() => deriveArtifact(messages), [messages]);
-  const activeMenuId = React.useMemo(() => latestMenuId(messages), [messages]);
+  const derivedMenuId = React.useMemo(() => latestMenuId(messages), [messages]);
+  const activeMenuId = activeMenuIdProp ?? derivedMenuId;
 
   // --- explicit navigation (clicking a card / Back / Library), no effects ---
   const [view, setView] = React.useState<PanelView>({ kind: "follow" });
@@ -394,6 +401,18 @@ export function ArtifactPanel({
     },
     [messages.length],
   );
+
+  // When the chef picks a menu in the header switcher, jump the panel to that
+  // menu's workspace (adjust-state-during-render, the same pattern used for focus
+  // reset below — no effect).
+  const [seenMenuNonce, setSeenMenuNonce] = React.useState(openMenuNonce);
+  if (openMenuNonce !== seenMenuNonce) {
+    setSeenMenuNonce(openMenuNonce);
+    if (activeMenuId) {
+      setView({ kind: "menu", menuId: activeMenuId, back: { kind: "follow" } });
+      setViewLen(messages.length);
+    }
+  }
   // A non-follow view only holds until the next message; then we follow again.
   const activeView: PanelView =
     view.kind === "follow" || viewLen === messages.length ? view : { kind: "follow" };

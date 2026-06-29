@@ -7,6 +7,7 @@ import {
   ChefHatIcon,
   ListChecksIcon,
   SparklesIcon,
+  Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
@@ -23,6 +24,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RecipeGridCard } from "@/components/recipe-grid-card";
+import { MenuCover } from "@/components/menu-cover";
 import { TechniqueCard, type TechniqueView } from "@/components/technique-card";
 import { cn } from "@/lib/utils";
 
@@ -65,6 +67,7 @@ export function LibraryGrid({
   const menus = useQuery(api.menus.listMenus, {});
   const techniques = useQuery(api.techniques.listTechniques, {});
   const deleteRecipe = useMutation(api.recipes.deleteRecipe);
+  const deleteMenu = useMutation(api.menus.deleteMenu);
 
   const [tab, setTab] = useState<TabKey>("recipes");
   // "all" plus the recipe categories present in the library.
@@ -87,6 +90,27 @@ export function LibraryGrid({
       toast.error("Couldn't delete that recipe. Try again.");
     } finally {
       setDeleting(false);
+    }
+  }
+
+  // The menu queued for deletion, shown in its own confirm dialog. null = closed.
+  const [menuPending, setMenuPending] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [menuDeleting, setMenuDeleting] = useState(false);
+
+  async function confirmDeleteMenu() {
+    if (!menuPending) return;
+    setMenuDeleting(true);
+    try {
+      await deleteMenu({ menuId: menuPending.id as Id<"menus"> });
+      toast.success(`Deleted "${menuPending.name}"`);
+      setMenuPending(null);
+    } catch {
+      toast.error("Couldn't delete that menu. Try again.");
+    } finally {
+      setMenuDeleting(false);
     }
   }
 
@@ -233,7 +257,9 @@ export function LibraryGrid({
                     name={m.name}
                     recipeCount={m.recipeRefs.length}
                     servings={m.targetServings}
+                    coverImageUrls={m.coverImageUrls}
                     onOpen={onOpenMenu ? () => onOpenMenu(m._id) : undefined}
+                    onDelete={() => setMenuPending({ id: m._id, name: m.name })}
                   />
                 ))}
               </div>
@@ -302,6 +328,40 @@ export function LibraryGrid({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={menuPending !== null}
+        onOpenChange={(open) => {
+          if (!open && !menuDeleting) setMenuPending(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete menu?</DialogTitle>
+            <DialogDescription>
+              {menuPending
+                ? `"${menuPending.name}" and its saved plans will be removed. This can't be undone. Your recipes stay in the library.`
+                : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setMenuPending(null)}
+              disabled={menuDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeleteMenu}
+              disabled={menuDeleting}
+            >
+              {menuDeleting ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Tabs>
   );
 }
@@ -343,47 +403,68 @@ function CategoryChip({
 }
 
 /**
- * A compact menu tile. Menus have no cover photo, so it leads with a branded
- * header band (mirroring the technique card) rather than an image — same
- * rounded card, hover lift, and brand accent as the recipe tiles.
+ * A compact menu tile. Menus have no cover photo of their own, so the header is
+ * a collage composed from the cover images of the dishes on the menu (falling
+ * back to a branded gradient when none have photos yet) — same rounded card,
+ * hover lift, and brand accent as the recipe tiles.
  */
 function MenuGridCard({
   name,
   recipeCount,
   servings,
+  coverImageUrls,
   onOpen,
+  /** When provided, a trash button appears on hover to delete this menu. */
+  onDelete,
 }: {
   name: string;
   recipeCount: number;
   servings?: number;
+  coverImageUrls: string[];
   onOpen?: () => void;
+  onDelete?: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-label={`Open ${name}`}
-      className="group flex flex-col overflow-hidden rounded-xl border bg-card text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
-    >
-      <div className="flex items-center gap-3 bg-gradient-to-br from-brand/15 via-accent to-card px-4 py-4">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-card/80 text-brand shadow-sm ring-1 ring-brand/15">
-          <ChefHatIcon className="size-5" />
-        </div>
-        <div className="flex min-w-0 flex-col">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-brand">
+    <div className="group relative flex flex-col overflow-hidden rounded-xl border bg-card text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md focus-within:ring-2 focus-within:ring-ring/50">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Open ${name}`}
+        className="absolute inset-0 z-0 focus-visible:outline-none"
+      />
+      {onDelete && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          aria-label={`Delete ${name}`}
+          className="absolute right-2.5 top-2.5 z-10 flex size-7 items-center justify-center rounded-md bg-card/85 text-muted-foreground opacity-0 shadow-sm ring-1 ring-border/60 backdrop-blur transition-all hover:bg-destructive hover:text-white focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive group-hover:opacity-100"
+        >
+          <Trash2Icon className="size-3.5" />
+        </button>
+      )}
+      {/* Cover collage built from the dishes on the menu. */}
+      <div className="relative aspect-[16/9] w-full overflow-hidden bg-muted">
+        <MenuCover imageUrls={coverImageUrls} alt={`${name} menu`} />
+        <div className="absolute left-2.5 top-2.5">
+          <span className="inline-flex items-center rounded-full bg-card/85 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-brand shadow-sm ring-1 ring-border/60 backdrop-blur">
             Menu
           </span>
-          <h3 className="truncate text-sm font-semibold leading-tight tracking-tight">
-            {name}
-          </h3>
         </div>
       </div>
-      <div className="flex items-center gap-1.5 px-4 py-3 text-xs text-muted-foreground">
-        <ListChecksIcon className="size-3.5 text-brand/60" />
-        {plural(recipeCount, "recipe", "recipes")}
-        {servings ? ` · serves ${servings}` : ""}
+      <div className="pointer-events-none relative z-10 flex flex-1 flex-col gap-1.5 p-3.5">
+        <h3 className="truncate text-sm font-semibold leading-tight tracking-tight">
+          {name}
+        </h3>
+        <div className="mt-auto flex items-center gap-1.5 pt-1.5 text-xs text-muted-foreground">
+          <ListChecksIcon className="size-3.5 text-brand/60" />
+          {plural(recipeCount, "recipe", "recipes")}
+          {servings ? ` · serves ${servings}` : ""}
+        </div>
       </div>
-    </button>
+    </div>
   );
 }
 
