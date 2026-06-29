@@ -8,7 +8,7 @@ import { openai } from "@ai-sdk/openai";
  * provider (e.g. to Claude) means importing @ai-sdk/anthropic and changing the
  * one `chatModel` line below.
  */
-export const CHAT_MODEL_ID = "gpt-5.4-nano";
+export const CHAT_MODEL_ID = "gpt-5.4-mini";
 export const chatModel = openai(CHAT_MODEL_ID);
 
 /** Embedding model for technique/recipe vector search (used in a later chunk). */
